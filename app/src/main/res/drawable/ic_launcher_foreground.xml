@@ -1,0 +1,14 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Drop Shape -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,24C54,24 30,55 30,72C30,85 41,86 54,86C67,86 78,85 78,72C78,55 54,24 54,24Z" />
+    <!-- Bolt Symbol -->
+    <path
+        android:fillColor="#FFD600"
+        android:pathData="M58,45L42,64H53L48,80L64,61H53L58,45Z" />
+</vector>
