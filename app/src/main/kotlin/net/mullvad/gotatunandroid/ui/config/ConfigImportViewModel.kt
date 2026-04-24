@@ -7,12 +7,12 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import net.mullvad.gotatunandroid.domain.ConfigRepository
 import net.mullvad.gotatunandroid.domain.WireGuardConfigParser
 import net.mullvad.gotatunandroid.domain.model.VpnConfig
-import net.mullvad.gotatunandroid.vpn.VpnController
 
 class ConfigImportViewModel(
-    private val vpnController: VpnController
+    private val configRepository: ConfigRepository
 ) : ViewModel() {
 
     sealed class State {
@@ -38,7 +38,8 @@ class ConfigImportViewModel(
 
     fun confirmImport() {
         val preview = _state.value as? State.Preview ?: return
-        vpnController.connect(preview.config)
+        configRepository.saveConfig(preview.config)
+        configRepository.setActiveConfig(preview.config.id)
         _navigateBack.tryEmit(Unit)
     }
 
@@ -46,4 +47,3 @@ class ConfigImportViewModel(
         _state.value = State.Idle
     }
 }
-

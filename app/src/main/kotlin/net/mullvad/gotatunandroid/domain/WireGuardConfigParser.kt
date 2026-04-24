@@ -12,6 +12,7 @@ object WireGuardConfigParser {
         var privateKey = ""
         val addresses = mutableListOf<String>()
         val dns = mutableListOf<String>()
+        var mtu: Int? = null
 
         val peers = mutableListOf<PeerConfig>()
         var currentSection = ""
@@ -19,7 +20,8 @@ object WireGuardConfigParser {
         // Per-peer accumulators
         var peerPublicKey = ""
         val peerAllowedIps = mutableListOf<String>()
-        var peerEndpoint = ""
+        var peerEndpointHost = ""
+        var peerEndpointPort: Int? = null
 
         fun flushPeer() {
             if (peerPublicKey.isNotEmpty()) {
@@ -27,12 +29,14 @@ object WireGuardConfigParser {
                     PeerConfig(
                         publicKey = peerPublicKey,
                         allowedIps = peerAllowedIps.toList(),
-                        endpoint = peerEndpoint
+                        endpointHost = peerEndpointHost,
+                        endpointPort = peerEndpointPort
                     )
                 )
                 peerPublicKey = ""
                 peerAllowedIps.clear()
-                peerEndpoint = ""
+                peerEndpointHost = ""
+                peerEndpointPort = null
             }
         }
 
@@ -55,11 +59,28 @@ object WireGuardConfigParser {
                             "privatekey" -> privateKey = value
                             "address" -> addresses.addAll(value.split(",").map { it.trim() }.filter { it.isNotEmpty() })
                             "dns" -> dns.addAll(value.split(",").map { it.trim() }.filter { it.isNotEmpty() })
+                            "mtu" -> {
+                                val parsed = value.toIntOrNull()
+                                if (parsed != null && parsed in 1280..1420) mtu = parsed
+                            }
                         }
                         "peer" -> when (key.lowercase()) {
                             "publickey" -> peerPublicKey = value
                             "allowedips" -> peerAllowedIps.addAll(value.split(",").map { it.trim() }.filter { it.isNotEmpty() })
-                            "endpoint" -> peerEndpoint = value
+                            "endpoint" -> {
+                                // Supports IPv4 (host:port) and IPv6 ([addr]:port)
+                                // Split at the last ':' to separate port from host
+                                val lastColon = value.lastIndexOf(':')
+                                if (lastColon > 0) {
+                                    val host = value.substring(0, lastColon)
+                                    val port = value.substring(lastColon + 1).toIntOrNull()
+                                    peerEndpointHost = host
+                                    peerEndpointPort = if (port != null && port in 0..65535) port else null
+                                } else {
+                                    peerEndpointHost = value
+                                    peerEndpointPort = null
+                                }
+                            }
                         }
                     }
                 }
@@ -72,7 +93,8 @@ object WireGuardConfigParser {
             interfaceConfig = InterfaceConfig(
                 privateKey = privateKey,
                 addresses = addresses,
-                dns = dns
+                dns = dns,
+                mtu = mtu
             ),
             peers = peers
         )
@@ -87,6 +109,7 @@ object WireGuardConfigParser {
         if (config.interfaceConfig.dns.isNotEmpty()) {
             appendLine("DNS = ${config.interfaceConfig.dns.joinToString(", ")}")
         }
+        config.interfaceConfig.mtu?.let { appendLine("MTU = $it") }
         config.peers.forEach { peer ->
             appendLine()
             appendLine("[Peer]")
@@ -94,8 +117,9 @@ object WireGuardConfigParser {
             if (peer.allowedIps.isNotEmpty()) {
                 appendLine("AllowedIPs = ${peer.allowedIps.joinToString(", ")}")
             }
-            if (peer.endpoint.isNotEmpty()) {
-                appendLine("Endpoint = ${peer.endpoint}")
+            if (peer.endpointHost.isNotEmpty()) {
+                val port = peer.endpointPort ?: (0..65535).random() // safety-net; port is normally resolved at save time
+                appendLine("Endpoint = ${peer.endpointHost}:$port")
             }
         }
     }

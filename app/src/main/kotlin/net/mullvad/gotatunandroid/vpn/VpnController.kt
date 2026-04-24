@@ -12,7 +12,8 @@ interface VpnController {
 sealed class VpnState {
     object Idle : VpnState()
     object Connecting : VpnState()
-    object Connected : VpnState()
+    /** Carries the fully-resolved config used for this session (ports are always concrete). */
+    data class Connected(val resolvedConfig: VpnConfig) : VpnState()
     object Disconnecting : VpnState()
     data class Error(val message: String) : VpnState()
 }

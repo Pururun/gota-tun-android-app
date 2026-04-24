@@ -1,0 +1,28 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Main Silhouette -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M54,25 C45,25 35,30 32,45 L35,48 C35,68 40,85 54,85 C68,85 73,68 73,48 L76,45 C73,30 63,25 54,25 Z" />
+
+    <!-- Cutouts (Internal Details) -->
+    <!-- Hat Brim Cutout -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,45 L78,45 L80,48 L28,48 Z" />
+
+    <!-- Snout Outline Cutout -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,55 C48,70 54,80 54,80 C54,80 60,70 60,55 C60,50 54,48 54,48 C54,48 48,50 48,55 Z M50,55 C50,52 54,50 54,50 C54,50 58,52 58,55 C58,68 54,77 54,77 C54,77 50,68 50,55 Z" />
+
+    <!-- Eyes Cutout -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M49,53 A1.5,1.5 0 1,1 48.9,53 Z M59,53 A1.5,1.5 0 1,1 58.9,53 Z" />
+
+</vector>

@@ -5,8 +5,11 @@ use std::net::SocketAddr;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use base64::{Engine as _, prelude::BASE64_STANDARD};
+use gotatun::device::uapi::command::{Get, Request, Response};
+use gotatun::device::uapi::UapiServer;
 use gotatun::device::{DeviceBuilder, Peer};
 use gotatun::packet::{Ip, Packet, PacketBufPool};
 use gotatun::tun::{IpRecv, IpSend, MtuWatcher};
@@ -15,7 +18,7 @@ use gotatun::udp::{UdpTransportFactory, UdpTransportFactoryParams};
 use gotatun::x25519::{PublicKey, StaticSecret};
 use ipnetwork::IpNetwork;
 use jni::objects::{GlobalRef, JObject, JString, JValue};
-use jni::sys::jint;
+use jni::sys::{jint, jstring};
 use jni::{JNIEnv, JavaVM};
 use tokio::io::unix::AsyncFd;
 
@@ -30,18 +33,27 @@ fn init_logging() {
     );
 }
 
+// ======== Shared stats ========
+
+#[derive(Default, Clone, Copy)]
+pub struct TunnelStats {
+    pub last_handshake_epoch_secs: i64,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
 // ======== Global tunnel state ========
 
 struct TunnelHandle {
     stop_tx: tokio::sync::oneshot::Sender<()>,
     thread: Option<std::thread::JoinHandle<()>>,
+    stats: Arc<Mutex<TunnelStats>>,
 }
 
 static TUNNEL: Mutex<Option<TunnelHandle>> = Mutex::new(None);
 
 // ======== Android TUN device (IpSend + IpRecv over raw fd) ========
 
-/// Wraps an Android TUN file descriptor to implement gotatun's IpSend and IpRecv traits.
 #[derive(Clone)]
 struct AndroidTunDevice {
     fd: Arc<AsyncFd<OwnedFd>>,
@@ -49,8 +61,6 @@ struct AndroidTunDevice {
 }
 
 impl AndroidTunDevice {
-    /// Must be called from within a Tokio runtime context (e.g. inside block_on or an async task).
-    /// `raw_fd` must already be set to non-blocking before calling this.
     fn new(raw_fd: RawFd, mtu: u16) -> io::Result<Self> {
         let owned = unsafe { OwnedFd::from_raw_fd(raw_fd) };
         Ok(Self {
@@ -64,7 +74,6 @@ impl IpSend for AndroidTunDevice {
     async fn send(&mut self, packet: Packet<Ip>) -> io::Result<()> {
         let raw = packet.into_bytes();
         let bytes: Vec<u8> = (&*raw as &[u8]).to_vec();
-
         loop {
             let mut guard = self.fd.writable().await?;
             match guard.try_io(|inner| {
@@ -75,11 +84,7 @@ impl IpSend for AndroidTunDevice {
                         bytes.len(),
                     )
                 };
-                if n < 0 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    Ok(n as usize)
-                }
+                if n < 0 { Err(io::Error::last_os_error()) } else { Ok(n as usize) }
             }) {
                 Ok(Ok(_)) => return Ok(()),
                 Ok(Err(e)) => return Err(e),
@@ -108,37 +113,26 @@ impl IpRecv for AndroidTunDevice {
                             mtu,
                         )
                     };
-                    if n < 0 {
-                        Err(io::Error::last_os_error())
-                    } else {
-                        Ok(n as usize)
-                    }
+                    if n < 0 { Err(io::Error::last_os_error()) } else { Ok(n as usize) }
                 }) {
                     Ok(Ok(n)) => n,
                     Ok(Err(e)) => return Err(e),
                     Err(_would_block) => continue,
                 }
             };
-
             pkt.truncate(n);
             match pkt.try_into_ip() {
                 Ok(ip_pkt) => return Ok(std::iter::once(ip_pkt)),
-                Err(e) => {
-                    log::debug!("Skipping non-IP packet from TUN: {e}");
-                    continue;
-                }
+                Err(e) => { log::debug!("Skipping non-IP packet from TUN: {e}"); continue; }
             }
         }
     }
 
-    fn mtu(&self) -> MtuWatcher {
-        MtuWatcher::new(self.mtu)
-    }
+    fn mtu(&self) -> MtuWatcher { MtuWatcher::new(self.mtu) }
 }
 
-// ======== UDP factory that protects sockets via VpnService.protect() ========
+// ======== UDP factory ========
 
-/// A UdpTransportFactory that protects bound sockets using Android's VpnService.protect().
 struct ProtectedUdpFactory {
     vm: Arc<JavaVM>,
     service: GlobalRef,
@@ -156,33 +150,27 @@ impl UdpTransportFactory for ProtectedUdpFactory {
     ) -> io::Result<((Self::SendV4, Self::RecvV4), (Self::SendV6, Self::RecvV6))> {
         let mut std_factory = UdpSocketFactory;
         let result = std_factory.bind(params).await?;
-
         {
             use std::os::unix::io::AsFd;
             let ((ref send_v4, _), (ref send_v6, _)) = result;
             let v4_raw = send_v4.as_fd().as_raw_fd();
             let v6_raw = send_v6.as_fd().as_raw_fd();
-
             protect_socket(&self.vm, &self.service, v4_raw)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
             protect_socket(&self.vm, &self.service, v6_raw)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         }
-
         Ok(result)
     }
 }
 
-/// Call VpnService.protect(fd) via JNI to prevent routing loops.
 fn protect_socket(vm: &JavaVM, service: &GlobalRef, fd: RawFd) -> Result<(), String> {
     let mut env = vm
         .attach_current_thread()
         .map_err(|e| format!("JNI attach_current_thread failed: {e}"))?;
-
     let result = env
         .call_method(service, "protect", "(I)Z", &[JValue::Int(fd)])
         .map_err(|e| format!("JNI protect() call failed: {e}"))?;
-
     match result.z() {
         Ok(true) => Ok(()),
         Ok(false) => Err("VpnService.protect() returned false".to_string()),
@@ -229,9 +217,7 @@ fn flush_peer(
 ) {
     if let Some(pk) = pub_key {
         let mut peer = Peer::new(pk);
-        if let Some(ep) = endpoint {
-            peer = peer.with_endpoint(ep);
-        }
+        if let Some(ep) = endpoint { peer = peer.with_endpoint(ep); }
         peer = peer.with_allowed_ips(allowed_ips);
         peers.push(peer);
     }
@@ -247,40 +233,24 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
 
     for line in config_str.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-
+        if line.is_empty() || line.starts_with('#') { continue; }
         if line.eq_ignore_ascii_case("[Interface]") {
             if in_peer {
-                flush_peer(
-                    pub_key.take(),
-                    endpoint.take(),
-                    std::mem::take(&mut allowed_ips),
-                    &mut peers,
-                );
+                flush_peer(pub_key.take(), endpoint.take(), std::mem::take(&mut allowed_ips), &mut peers);
                 in_peer = false;
             }
             continue;
         }
-
         if line.eq_ignore_ascii_case("[Peer]") {
             if in_peer {
-                flush_peer(
-                    pub_key.take(),
-                    endpoint.take(),
-                    std::mem::take(&mut allowed_ips),
-                    &mut peers,
-                );
+                flush_peer(pub_key.take(), endpoint.take(), std::mem::take(&mut allowed_ips), &mut peers);
             }
             in_peer = true;
             continue;
         }
-
         if let Some((key, value)) = line.split_once('=') {
             let key = key.trim();
             let value = value.trim();
-
             if !in_peer {
                 if key.eq_ignore_ascii_case("PrivateKey") {
                     let bytes = parse_key(value)?;
@@ -291,11 +261,7 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
                     let bytes = parse_key(value)?;
                     pub_key = Some(PublicKey::from(bytes));
                 } else if key.eq_ignore_ascii_case("Endpoint") {
-                    endpoint = Some(
-                        value
-                            .parse()
-                            .map_err(|e| format!("Invalid endpoint '{value}': {e}"))?,
-                    );
+                    endpoint = Some(value.parse().map_err(|e| format!("Invalid endpoint '{value}': {e}"))?);
                 } else if key.eq_ignore_ascii_case("AllowedIPs") {
                     for cidr in value.split(',') {
                         let cidr = cidr.trim();
@@ -307,24 +273,15 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
             }
         }
     }
-
-    // Flush final peer
     if in_peer {
-        flush_peer(
-            pub_key.take(),
-            endpoint.take(),
-            std::mem::take(&mut allowed_ips),
-            &mut peers,
-        );
+        flush_peer(pub_key.take(), endpoint.take(), std::mem::take(&mut allowed_ips), &mut peers);
     }
-
     let private_key = private_key.ok_or("Missing PrivateKey in [Interface] section")?;
     Ok(ParsedConfig { private_key, peers })
 }
 
 // ======== JNI exports ========
 
-/// JNI: GotaTunWrapper.startTunnel(fd: Int, config: String, service: VpnService): Int
 #[unsafe(no_mangle)]
 pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_startTunnel<'local>(
     mut env: JNIEnv<'local>,
@@ -337,23 +294,14 @@ pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_startTunnel
 
     let config_str: String = match env.get_string(&config) {
         Ok(s) => s.into(),
-        Err(e) => {
-            log::error!("startTunnel: failed to read config string: {e}");
-            return -1;
-        }
+        Err(e) => { log::error!("startTunnel: failed to read config string: {e}"); return -1; }
     };
 
     let parsed = match parse_config(&config_str) {
         Ok(p) => p,
-        Err(e) => {
-            log::error!("startTunnel: failed to parse config: {e}");
-            return -2;
-        }
+        Err(e) => { log::error!("startTunnel: failed to parse config: {e}"); return -2; }
     };
 
-    // Validate the fd is usable before handing it to the background thread.
-    // NOTE: AndroidTunDevice::new() (which calls AsyncFd::new) must run
-    // inside the tokio runtime, so we only set non-blocking here.
     unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFL);
         libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
@@ -361,53 +309,40 @@ pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_startTunnel
 
     let vm = match env.get_java_vm() {
         Ok(vm) => Arc::new(vm),
-        Err(e) => {
-            log::error!("startTunnel: failed to get JavaVM: {e}");
-            return -4;
-        }
+        Err(e) => { log::error!("startTunnel: failed to get JavaVM: {e}"); return -4; }
     };
-
     let service_ref = match env.new_global_ref(&service) {
         Ok(r) => r,
-        Err(e) => {
-            log::error!("startTunnel: failed to create GlobalRef for service: {e}");
-            return -5;
-        }
+        Err(e) => { log::error!("startTunnel: failed to create GlobalRef: {e}"); return -5; }
     };
 
-    let udp_factory = ProtectedUdpFactory {
-        vm,
-        service: service_ref,
-    };
+    let udp_factory = ProtectedUdpFactory { vm, service: service_ref };
 
-    // Stop any currently running tunnel
     stop_tunnel_impl();
 
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
+    let (uapi_client, uapi_server) = UapiServer::new();
+    // stats are written by the polling task and read by the JNI getStats function
+    let stats = Arc::new(Mutex::new(TunnelStats::default()));
+    let stats_clone = Arc::clone(&stats);
 
     let thread = std::thread::spawn(move || {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
-            Err(e) => {
-                log::error!("tunnel thread: failed to create Tokio runtime: {e}");
-                return;
-            }
+            Err(e) => { log::error!("tunnel thread: failed to create Tokio runtime: {e}"); return; }
         };
 
         rt.block_on(async move {
-            // AsyncFd::new() requires a live Tokio runtime handle — create device here.
             let tun_device = match AndroidTunDevice::new(fd, 1420) {
                 Ok(d) => d,
-                Err(e) => {
-                    log::error!("tunnel: failed to wrap TUN fd {fd}: {e}");
-                    return;
-                }
+                Err(e) => { log::error!("tunnel: failed to wrap TUN fd {fd}: {e}"); return; }
             };
 
             let mut builder = DeviceBuilder::new()
                 .with_udp(udp_factory)
                 .with_ip(tun_device)
-                .with_private_key(parsed.private_key);
+                .with_private_key(parsed.private_key)
+                .with_uapi(uapi_server);
 
             for peer in parsed.peers {
                 builder = builder.with_peer(peer);
@@ -416,13 +351,31 @@ pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_startTunnel
             match builder.build().await {
                 Ok(device) => {
                     log::info!("WireGuard tunnel started successfully");
+
+                    // Move uapi_client into the polling task — avoids holding MutexGuard across await
+                    let stats_arc = stats_clone;
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                            let request = Request::from(Get::default());
+                            if let Ok(Response::Get(resp)) = uapi_client.send(request).await {
+                                let mut s = stats_arc.lock().unwrap();
+                                for peer in &resp.peers {
+                                    if let Some(secs) = peer.last_handshake_time_sec {
+                                        s.last_handshake_epoch_secs = secs as i64;
+                                    }
+                                    if let Some(rx) = peer.rx_bytes { s.rx_bytes = rx; }
+                                    if let Some(tx) = peer.tx_bytes { s.tx_bytes = tx; }
+                                }
+                            }
+                        }
+                    });
+
                     let _ = stop_rx.await;
                     device.stop().await;
                     log::info!("WireGuard tunnel stopped");
                 }
-                Err(e) => {
-                    log::error!("Failed to build WireGuard device: {e}");
-                }
+                Err(e) => { log::error!("Failed to build WireGuard device: {e}"); }
             }
         });
     });
@@ -430,12 +383,12 @@ pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_startTunnel
     *TUNNEL.lock().unwrap() = Some(TunnelHandle {
         stop_tx,
         thread: Some(thread),
+        stats,
     });
 
     0
 }
 
-/// JNI: GotaTunWrapper.stopTunnel(): Int
 #[unsafe(no_mangle)]
 pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_stopTunnel<'local>(
     _env: JNIEnv<'local>,
@@ -444,13 +397,27 @@ pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_stopTunnel<
     if stop_tunnel_impl() { 0 } else { -1 }
 }
 
+/// Returns tunnel stats as "lastHandshakeSecs|rxBytes|txBytes" or empty string if no tunnel.
+#[unsafe(no_mangle)]
+pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_getStats<'local>(
+    env: JNIEnv<'local>,
+    _obj: JObject<'local>,
+) -> jstring {
+    let result = TUNNEL.lock().unwrap().as_ref().map(|h| {
+        let s = h.stats.lock().unwrap();
+        format!("{}|{}|{}", s.last_handshake_epoch_secs, s.rx_bytes, s.tx_bytes)
+    }).unwrap_or_default();
+
+    env.new_string(result)
+        .map(|s| s.into_raw())
+        .unwrap_or(std::ptr::null_mut())
+}
+
 fn stop_tunnel_impl() -> bool {
     match TUNNEL.lock().unwrap().take() {
         Some(mut handle) => {
             let _ = handle.stop_tx.send(());
-            if let Some(thread) = handle.thread.take() {
-                let _ = thread.join();
-            }
+            if let Some(thread) = handle.thread.take() { let _ = thread.join(); }
             true
         }
         None => false,

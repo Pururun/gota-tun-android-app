@@ -146,7 +146,10 @@ private fun PreviewContent(
 
         config.peers.forEachIndexed { index, peer ->
             ConfigDetailCard(title = if (config.peers.size > 1) "Peer ${index + 1}" else "Peer") {
-                ConfigDetailRow("Endpoint", peer.endpoint)
+                ConfigDetailRow("Endpoint", buildString {
+                    append(peer.endpointHost)
+                    peer.endpointPort?.let { append(":$it") }
+                })
                 ConfigDetailRow("Allowed IPs", peer.allowedIps.joinToString(", "))
                 ConfigDetailRow("Public Key", peer.publicKey.take(8) + "…")
             }
@@ -158,7 +161,7 @@ private fun PreviewContent(
             onClick = onConfirm,
             modifier = Modifier.fillMaxWidth().height(56.dp)
         ) {
-            Text("Connect")
+            Text("Save Configuration")
         }
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(
@@ -283,7 +286,8 @@ fun ConfigImportPreviewState() {
                         PeerConfig(
                             publicKey = "rWiQxq5lAWD8v/bws9ITSAvThyZW8cR2x+Ins9ZvvRo=",
                             allowedIps = listOf("0.0.0.0/0", "::0/0"),
-                            endpoint = "146.70.116.162:3574"
+                            endpointHost = "146.70.116.162",
+                            endpointPort = 3574
                         )
                     )
                 )

@@ -1,11 +1,16 @@
 package net.mullvad.gotatunandroid.ui.settings
 
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.provider.Settings
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -13,7 +18,24 @@ import net.mullvad.gotatunandroid.ui.theme.GotaTunAndroidTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(
+    onBack: () -> Unit,
+    allowRemoteControl: Boolean = false,
+    onToggleRemoteControl: (Boolean) -> Unit = {}
+) {
+    val context = LocalContext.current
+
+    // Check at composition time whether the VPN settings screen exists on this device
+    val vpnSettingsIntent = remember {
+        Intent(Settings.ACTION_VPN_SETTINGS)
+    }
+    val vpnSettingsAvailable = remember {
+        context.packageManager.resolveActivity(
+            vpnSettingsIntent,
+            PackageManager.MATCH_DEFAULT_ONLY
+        ) != null
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
@@ -34,14 +56,31 @@ fun SettingsScreen(onBack: () -> Unit) {
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
-            SettingsSectionTitle("General")
-            SettingsToggleItem(
-                title = "Kill Switch",
-                subtitle = "Block internet if VPN disconnects",
-                checked = false,
-                onCheckedChange = {}
+            if (vpnSettingsAvailable) {
+                SettingsSectionTitle("System")
+                SettingsLinkItem(
+                    title = "VPN Settings",
+                    subtitle = "Configure always-on VPN and kill switch in Android system settings",
+                    onClick = { context.startActivity(vpnSettingsIntent) }
+                )
+                HorizontalDivider()
+            }
+
+            SettingsSectionTitle("Automation")
+            ListItem(
+                headlineContent = { Text("Allow remote control") },
+                supportingContent = {
+                    Text("Let third-party apps (e.g. Tasker) toggle the tunnel via broadcast intents")
+                },
+                trailingContent = {
+                    Switch(
+                        checked = allowRemoteControl,
+                        onCheckedChange = onToggleRemoteControl
+                    )
+                }
             )
             HorizontalDivider()
+
             SettingsSectionTitle("About")
             SettingsInfoItem(title = "Version", value = "1.0.0")
         }
@@ -59,26 +98,24 @@ private fun SettingsSectionTitle(title: String) {
 }
 
 @Composable
-private fun SettingsToggleItem(
+private fun SettingsLinkItem(
     title: String,
     subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    onClick: () -> Unit
 ) {
-    var state by remember { mutableStateOf(checked) }
-    ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = { Text(subtitle) },
-        trailingContent = {
-            Switch(
-                checked = state,
-                onCheckedChange = {
-                    state = it
-                    onCheckedChange(it)
-                }
-            )
-        }
-    )
+    Surface(onClick = onClick, color = MaterialTheme.colorScheme.surface) {
+        ListItem(
+            headlineContent = { Text(title) },
+            supportingContent = { Text(subtitle) },
+            trailingContent = {
+                Icon(
+                    Icons.AutoMirrored.Rounded.OpenInNew,
+                    contentDescription = "Open",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        )
+    }
 }
 
 @Composable
@@ -102,4 +139,3 @@ fun SettingsPreview() {
         SettingsScreen(onBack = {})
     }
 }
-

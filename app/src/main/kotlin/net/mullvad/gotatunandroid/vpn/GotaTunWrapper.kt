@@ -28,4 +28,10 @@ class GotaTunWrapper {
      * @return 0 on success, error code otherwise.
      */
     external fun stopTunnel(): Int
+
+    /**
+     * Returns current tunnel stats as "lastHandshakeEpochSecs|rxBytes|txBytes",
+     * or an empty string when no tunnel is active.
+     */
+    external fun getStats(): String
 }

@@ -3,12 +3,38 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Drop Shape -->
+
+    <!-- Mole Head / Body (Brown) -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,24C54,24 30,55 30,72C30,85 41,86 54,86C67,86 78,85 78,72C78,55 54,24 54,24Z" />
-    <!-- Bolt Symbol -->
+        android:fillColor="#C68E4F"
+        android:pathData="M35,48 C35,68 40,85 54,85 C68,85 73,68 73,48 L35,48 Z" />
+
+    <!-- Snout (Lighter Brown) -->
+    <path
+        android:fillColor="#E1A975"
+        android:pathData="M48,55 C48,70 54,80 54,80 C54,80 60,70 60,55 C60,50 54,48 54,48 C54,48 48,50 48,55 Z" />
+
+    <!-- Hard Hat (Yellow) -->
     <path
         android:fillColor="#FFD600"
-        android:pathData="M58,45L42,64H53L48,80L64,61H53L58,45Z" />
+        android:pathData="M54,25 C45,25 35,30 32,45 L76,45 C73,30 63,25 54,25 Z" />
+
+    <!-- Hard Hat Brim -->
+    <path
+        android:fillColor="#FFB300"
+        android:pathData="M30,45 L78,45 L80,48 L28,48 Z" />
+
+    <!-- Eyes (Small black dots) -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M49,53 A1.5,1.5 0 1,1 48.9,53 Z" />
+    <path
+        android:fillColor="#000000"
+        android:pathData="M59,53 A1.5,1.5 0 1,1 58.9,53 Z" />
+
+    <!-- Nose Tip -->
+    <path
+        android:fillColor="#8D5B39"
+        android:pathData="M52,78 C52,80 54,82 54,82 C54,82 56,80 56,78 C56,76 54,75 54,75 C54,75 52,76 52,78 Z" />
+
 </vector>

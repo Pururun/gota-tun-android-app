@@ -10,11 +10,15 @@ sealed class Destination {
     @Serializable
     data object Dashboard : Destination()
     @Serializable
-    data object ManualEntry : Destination()
+    data class ManualEntry(val editConfigId: String? = null) : Destination()
     @Serializable
     data object ConfigImport : Destination()
     @Serializable
     data object Settings : Destination()
+    @Serializable
+    data object ConfigList : Destination()
+    @Serializable
+    data class SplitTunneling(val configId: String) : Destination()
 }
 
 class NavigationViewModel @Inject constructor() : ViewModel() {

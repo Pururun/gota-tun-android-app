@@ -3,6 +3,7 @@ package net.mullvad.gotatunandroid
 import android.app.Activity
 import android.net.VpnService
 import android.os.Bundle
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -13,14 +14,17 @@ import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
 import dev.zacsweers.metro.createGraphFactory
 import net.mullvad.gotatunandroid.di.AppGraph
-import net.mullvad.gotatunandroid.domain.WireGuardConfigParser
 import net.mullvad.gotatunandroid.ui.config.ConfigImportScreen
 import net.mullvad.gotatunandroid.ui.config.ConfigImportViewModel
+import net.mullvad.gotatunandroid.ui.configlist.ConfigListScreen
+import net.mullvad.gotatunandroid.ui.configlist.ConfigListViewModel
 import net.mullvad.gotatunandroid.ui.dashboard.DashboardScreen
 import net.mullvad.gotatunandroid.ui.dashboard.DashboardViewModel
 import net.mullvad.gotatunandroid.ui.manual.ManualEntryScreen
 import net.mullvad.gotatunandroid.ui.navigation.Destination
 import net.mullvad.gotatunandroid.ui.settings.SettingsScreen
+import net.mullvad.gotatunandroid.ui.splittunneling.SplitTunnelingScreen
+import net.mullvad.gotatunandroid.ui.splittunneling.SplitTunnelingViewModel
 import net.mullvad.gotatunandroid.ui.theme.GotaTunAndroidTheme
 
 class MainActivity : ComponentActivity() {
@@ -61,8 +65,13 @@ class MainActivity : ComponentActivity() {
                 ?.use { it.readText() }
                 ?: return@registerForActivityResult
 
-            val fileName = uri.lastPathSegment
-                ?.substringAfterLast('/')
+            val fileName = contentResolver
+                .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+                    } else null
+                }
                 ?.substringBeforeLast('.')
                 ?: "Imported"
 
@@ -75,12 +84,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        
+
         // Setup DI
         val appGraph = createGraphFactory<AppGraph.Factory>().create(this)
         val vpnController = appGraph.vpnController
         val navigationViewModel = appGraph.navigationViewModel
         val configRepository = appGraph.configRepository
+        val appSettingsRepository = appGraph.appSettingsRepository
 
         vpnControllerRef = vpnController
         navigationViewModelRef = navigationViewModel
@@ -91,6 +101,7 @@ class MainActivity : ComponentActivity() {
                     backStack = navigationViewModel.backStack,
                     onBack = { navigationViewModel.popBackStack() },
                     entryProvider = entryProvider {
+
                         entry<Destination.Dashboard> {
                             val viewModel: DashboardViewModel = viewModel {
                                 DashboardViewModel(vpnController, configRepository)
@@ -98,43 +109,45 @@ class MainActivity : ComponentActivity() {
                             dashboardViewModelRef = viewModel
                             val state by viewModel.vpnState.collectAsState()
                             val activeConfig by viewModel.activeConfig.collectAsState()
+                            val allConfigs by viewModel.allConfigs.collectAsState()
+                            val tunnelStats by viewModel.tunnelStats.collectAsState()
 
                             DashboardScreen(
                                 state = state,
                                 activeConfig = activeConfig,
+                                allConfigs = allConfigs,
+                                tunnelStats = tunnelStats,
                                 onToggle = { requestVpnPermissionThenConnect() },
-                                onAddManual = { navigationViewModel.navigateTo(Destination.ManualEntry) },
+                                onSelectConfig = { viewModel.selectConfig(it) },
+                                onAddManual = { navigationViewModel.navigateTo(Destination.ManualEntry()) },
                                 onImportFile = { navigationViewModel.navigateTo(Destination.ConfigImport) },
+                                onManageConfigs = { navigationViewModel.navigateTo(Destination.ConfigList) },
                                 onSettings = { navigationViewModel.navigateTo(Destination.Settings) }
                             )
                         }
-                        entry<Destination.ManualEntry> {
+
+                        entry<Destination.ManualEntry> { destination ->
+                            val allConfigs by configRepository.allConfigs.collectAsState()
+                            val initialConfig = destination.editConfigId
+                                ?.let { id -> allConfigs.find { it.id == id } }
+
                             ManualEntryScreen(
+                                initialConfig = initialConfig,
                                 onBack = { navigationViewModel.popBackStack() },
-                                onSave = { pk, addr, dns, pub, allowed, end ->
-                                    val config = net.mullvad.gotatunandroid.domain.model.VpnConfig(
-                                        name = "Manual",
-                                        interfaceConfig = net.mullvad.gotatunandroid.domain.model.InterfaceConfig(
-                                            privateKey = pk,
-                                            addresses = addr.split(",").map { it.trim() }.filter { it.isNotEmpty() },
-                                            dns = dns.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                                        ),
-                                        peers = listOf(
-                                            net.mullvad.gotatunandroid.domain.model.PeerConfig(
-                                                publicKey = pub,
-                                                allowedIps = allowed.split(",").map { it.trim() }.filter { it.isNotEmpty() },
-                                                endpoint = end
-                                            )
-                                        )
-                                    )
-                                    vpnController.connect(config)
+                                onSave = { config ->
+                                    configRepository.saveConfig(config)
+                                    // Only set as active when adding a brand-new config
+                                    if (destination.editConfigId == null) {
+                                        configRepository.setActiveConfig(config.id)
+                                    }
                                     navigationViewModel.popBackStack()
                                 }
                             )
                         }
+
                         entry<Destination.ConfigImport> {
                             val importViewModel: ConfigImportViewModel = viewModel {
-                                ConfigImportViewModel(vpnController)
+                                ConfigImportViewModel(configRepository)
                             }
                             configImportViewModelRef = importViewModel
 
@@ -154,9 +167,54 @@ class MainActivity : ComponentActivity() {
                                 onReset = { importViewModel.reset() }
                             )
                         }
+
+                        entry<Destination.ConfigList> {
+                            val listViewModel: ConfigListViewModel = viewModel {
+                                ConfigListViewModel(configRepository)
+                            }
+                            val configs by listViewModel.allConfigs.collectAsState()
+                            val activeConfig by listViewModel.activeConfig.collectAsState()
+
+                            ConfigListScreen(
+                                configs = configs,
+                                activeConfig = activeConfig,
+                                onBack = { navigationViewModel.popBackStack() },
+                                onEditConfig = { config ->
+                                    navigationViewModel.navigateTo(
+                                        Destination.ManualEntry(editConfigId = config.id)
+                                    )
+                                },
+                                onDeleteConfig = { listViewModel.deleteConfig(it) },
+                                onSelectConfig = { listViewModel.setActiveConfig(it) },
+                                onSplitTunneling = { configId ->
+                                    navigationViewModel.navigateTo(Destination.SplitTunneling(configId))
+                                }
+                            )
+                        }
+
+                        entry<Destination.SplitTunneling> { destination ->
+                            val stViewModel: SplitTunnelingViewModel = viewModel {
+                                SplitTunnelingViewModel(destination.configId, configRepository, applicationContext)
+                            }
+                            val stState by stViewModel.state.collectAsState()
+
+                            SplitTunnelingScreen(
+                                state = stState,
+                                onBack = { navigationViewModel.popBackStack() },
+                                onSetMode = { stViewModel.setMode(it) },
+                                onToggleApp = { stViewModel.toggleApp(it) },
+                                onToggleShowSystemApps = { stViewModel.toggleShowSystemApps() },
+                                onSave = { stViewModel.save() }
+                            )
+                        }
+
                         entry<Destination.Settings> {
+                            val allowRemoteControl by appSettingsRepository.allowRemoteControl.collectAsState()
+
                             SettingsScreen(
-                                onBack = { navigationViewModel.popBackStack() }
+                                onBack = { navigationViewModel.popBackStack() },
+                                allowRemoteControl = allowRemoteControl,
+                                onToggleRemoteControl = { appSettingsRepository.setAllowRemoteControl(it) }
                             )
                         }
                     }
