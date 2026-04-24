@@ -26,6 +26,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import net.mullvad.gotatunandroid.domain.model.InterfaceConfig
 import net.mullvad.gotatunandroid.domain.model.PeerConfig
+import net.mullvad.gotatunandroid.domain.model.SplitTunnelingMode
 import net.mullvad.gotatunandroid.domain.model.VpnConfig
 import net.mullvad.gotatunandroid.ui.theme.GotaTunAndroidTheme
 import net.mullvad.gotatunandroid.vpn.TunnelStats
@@ -351,6 +352,16 @@ fun ConnectionDetailsCard(config: VpnConfig) {
             }
             if (config.interfaceConfig.mtu != null) {
                 DetailRow(label = "MTU", value = config.interfaceConfig.mtu.toString())
+            }
+            if (config.splitTunneling.mode != SplitTunnelingMode.DISABLED) {
+                DetailRow(
+                    label = "Split Tunneling",
+                    value = when (config.splitTunneling.mode) {
+                        SplitTunnelingMode.EXCLUDE -> "Excluding apps"
+                        SplitTunnelingMode.INCLUDE_ONLY -> "Selected apps only"
+                        else -> ""
+                    }
+                )
             }
         }
     }
