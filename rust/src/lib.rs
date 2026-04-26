@@ -260,7 +260,18 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
                     let bytes = parse_key(value)?;
                     pub_key = Some(PublicKey::from(bytes));
                 } else if key.eq_ignore_ascii_case("Endpoint") {
-                    endpoint = Some(value.parse().map_err(|e| format!("Invalid endpoint '{value}': {e}"))?);
+                    // Try literal IP:port first, then fall back to blocking DNS resolution
+                    // for hostname:port endpoints (e.g. relay.example.com:51820).
+                    let addr = if let Ok(a) = value.parse::<SocketAddr>() {
+                        a
+                    } else {
+                        use std::net::ToSocketAddrs;
+                        value.to_socket_addrs()
+                            .map_err(|e| format!("Cannot resolve endpoint '{value}': {e}"))?
+                            .next()
+                            .ok_or_else(|| format!("No addresses found for endpoint '{value}'"))?
+                    };
+                    endpoint = Some(addr);
                 } else if key.eq_ignore_ascii_case("AllowedIPs") {
                     for cidr in value.split(',') {
                         let cidr = cidr.trim();
@@ -344,14 +355,21 @@ fn start_tunnel(fd: i32, config: String, protector: Box<dyn SocketProtector>) ->
                             tokio::time::sleep(Duration::from_secs(2)).await;
                             let request = Request::from(Get::default());
                             if let Ok(Response::Get(resp)) = uapi_client.send(request).await {
-                                let mut s = stats_arc.lock().unwrap();
+                                // Aggregate across all peers: sum bytes, take the most recent handshake.
+                                let mut total_rx = 0u64;
+                                let mut total_tx = 0u64;
+                                let mut last_handshake = 0i64;
                                 for peer in &resp.peers {
                                     if let Some(secs) = peer.last_handshake_time_sec {
-                                        s.last_handshake_epoch_secs = secs as i64;
+                                        last_handshake = last_handshake.max(secs as i64);
                                     }
-                                    if let Some(rx) = peer.rx_bytes { s.rx_bytes = rx; }
-                                    if let Some(tx) = peer.tx_bytes { s.tx_bytes = tx; }
+                                    if let Some(rx) = peer.rx_bytes { total_rx += rx; }
+                                    if let Some(tx) = peer.tx_bytes { total_tx += tx; }
                                 }
+                                let mut s = stats_arc.lock().unwrap();
+                                s.last_handshake_epoch_secs = last_handshake;
+                                s.rx_bytes = total_rx;
+                                s.tx_bytes = total_tx;
                             }
                         }
                     });
