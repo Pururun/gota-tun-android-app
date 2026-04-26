@@ -16,3 +16,8 @@ local.properties
 
 /rust/target
 /rust/.idea
+
+# Generated JNI bindings and compiled native libraries (produced by the Rust build)
+app/src/main/kotlin/net/mullvad/gotatunandroid/ffi/gotatun_jni.kt
+app/src/main/jniLibs/
+

@@ -1,3 +1,0 @@
-namespace {
-    start_tunnel(fd: i32, config: String);
-}

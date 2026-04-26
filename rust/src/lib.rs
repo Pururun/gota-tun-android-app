@@ -7,7 +7,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use base64::{Engine as _, prelude::BASE64_STANDARD};
+use base64::{prelude::BASE64_STANDARD, Engine as _};
 use gotatun::device::uapi::command::{Get, Request, Response};
 use gotatun::device::uapi::UapiServer;
 use gotatun::device::{DeviceBuilder, Peer};
@@ -17,9 +17,6 @@ use gotatun::udp::socket::{UdpSocket, UdpSocketFactory};
 use gotatun::udp::{UdpTransportFactory, UdpTransportFactoryParams};
 use gotatun::x25519::{PublicKey, StaticSecret};
 use ipnetwork::IpNetwork;
-use jni::objects::{GlobalRef, JObject, JString, JValue};
-use jni::sys::{jint, jstring};
-use jni::{JNIEnv, JavaVM};
 use tokio::io::unix::AsyncFd;
 
 // ======== Logging ========
@@ -131,11 +128,19 @@ impl IpRecv for AndroidTunDevice {
     fn mtu(&self) -> MtuWatcher { MtuWatcher::new(self.mtu) }
 }
 
+// ======== Socket protection callback ========
+
+/// Kotlin implements this to call VpnService.protect() on every UDP socket
+/// opened by the WireGuard device, preventing routing loops.
+#[uniffi::export(callback_interface)]
+pub trait SocketProtector: Send + Sync {
+    fn protect(&self, fd: i32) -> bool;
+}
+
 // ======== UDP factory ========
 
 struct ProtectedUdpFactory {
-    vm: Arc<JavaVM>,
-    service: GlobalRef,
+    protector: Arc<dyn SocketProtector>,
 }
 
 impl UdpTransportFactory for ProtectedUdpFactory {
@@ -155,26 +160,14 @@ impl UdpTransportFactory for ProtectedUdpFactory {
             let ((ref send_v4, _), (ref send_v6, _)) = result;
             let v4_raw = send_v4.as_fd().as_raw_fd();
             let v6_raw = send_v6.as_fd().as_raw_fd();
-            protect_socket(&self.vm, &self.service, v4_raw)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-            protect_socket(&self.vm, &self.service, v6_raw)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            if !self.protector.protect(v4_raw) {
+                return Err(io::Error::new(io::ErrorKind::Other, "VpnService.protect() failed for v4 socket"));
+            }
+            if !self.protector.protect(v6_raw) {
+                return Err(io::Error::new(io::ErrorKind::Other, "VpnService.protect() failed for v6 socket"));
+            }
         }
         Ok(result)
-    }
-}
-
-fn protect_socket(vm: &JavaVM, service: &GlobalRef, fd: RawFd) -> Result<(), String> {
-    let mut env = vm
-        .attach_current_thread()
-        .map_err(|e| format!("JNI attach_current_thread failed: {e}"))?;
-    let result = env
-        .call_method(service, "protect", "(I)Z", &[JValue::Int(fd)])
-        .map_err(|e| format!("JNI protect() call failed: {e}"))?;
-    match result.z() {
-        Ok(true) => Ok(()),
-        Ok(false) => Err("VpnService.protect() returned false".to_string()),
-        Err(e) => Err(format!("JNI protect() result error: {e}")),
     }
 }
 
@@ -183,6 +176,7 @@ fn protect_socket(vm: &JavaVM, service: &GlobalRef, fd: RawFd) -> Result<(), Str
 struct ParsedConfig {
     private_key: StaticSecret,
     peers: Vec<Peer>,
+    mtu: u16,
 }
 
 fn parse_key(s: &str) -> Result<[u8; 32], String> {
@@ -225,6 +219,7 @@ fn flush_peer(
 
 fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
     let mut private_key: Option<StaticSecret> = None;
+    let mut mtu: u16 = 1420;
     let mut peers: Vec<Peer> = Vec::new();
     let mut in_peer = false;
     let mut pub_key: Option<PublicKey> = None;
@@ -255,6 +250,10 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
                 if key.eq_ignore_ascii_case("PrivateKey") {
                     let bytes = parse_key(value)?;
                     private_key = Some(StaticSecret::from(bytes));
+                } else if key.eq_ignore_ascii_case("MTU") {
+                    if let Ok(m) = value.parse::<u16>() {
+                        mtu = m;
+                    }
                 }
             } else {
                 if key.eq_ignore_ascii_case("PublicKey") {
@@ -277,29 +276,23 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
         flush_peer(pub_key.take(), endpoint.take(), std::mem::take(&mut allowed_ips), &mut peers);
     }
     let private_key = private_key.ok_or("Missing PrivateKey in [Interface] section")?;
-    Ok(ParsedConfig { private_key, peers })
+    Ok(ParsedConfig { private_key, peers, mtu })
 }
 
-// ======== JNI exports ========
+// ======== uniffi exports ========
 
-#[unsafe(no_mangle)]
-pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_startTunnel<'local>(
-    mut env: JNIEnv<'local>,
-    _obj: JObject<'local>,
-    fd: jint,
-    config: JString<'local>,
-    service: JObject<'local>,
-) -> jint {
+/// Start a WireGuard tunnel.
+/// `fd` is the TUN file descriptor handed over by Android.
+/// `config` is the WireGuard config in wg-quick format.
+/// `protector` is a Kotlin callback that calls VpnService.protect() on each UDP socket.
+/// Returns true on success.
+#[uniffi::export]
+fn start_tunnel(fd: i32, config: String, protector: Box<dyn SocketProtector>) -> bool {
     init_logging();
 
-    let config_str: String = match env.get_string(&config) {
-        Ok(s) => s.into(),
-        Err(e) => { log::error!("startTunnel: failed to read config string: {e}"); return -1; }
-    };
-
-    let parsed = match parse_config(&config_str) {
+    let parsed = match parse_config(&config) {
         Ok(p) => p,
-        Err(e) => { log::error!("startTunnel: failed to parse config: {e}"); return -2; }
+        Err(e) => { log::error!("start_tunnel_impl: failed to parse config: {e}"); return false; }
     };
 
     unsafe {
@@ -307,24 +300,17 @@ pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_startTunnel
         libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
     }
 
-    let vm = match env.get_java_vm() {
-        Ok(vm) => Arc::new(vm),
-        Err(e) => { log::error!("startTunnel: failed to get JavaVM: {e}"); return -4; }
-    };
-    let service_ref = match env.new_global_ref(&service) {
-        Ok(r) => r,
-        Err(e) => { log::error!("startTunnel: failed to create GlobalRef: {e}"); return -5; }
-    };
+    // Promote to Arc so it can be shared with the async UDP factory
+    let protector: Arc<dyn SocketProtector> = Arc::from(protector);
+    let udp_factory = ProtectedUdpFactory { protector };
 
-    let udp_factory = ProtectedUdpFactory { vm, service: service_ref };
-
-    stop_tunnel_impl();
+    stop_tunnel();
 
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
     let (uapi_client, uapi_server) = UapiServer::new();
-    // stats are written by the polling task and read by the JNI getStats function
     let stats = Arc::new(Mutex::new(TunnelStats::default()));
     let stats_clone = Arc::clone(&stats);
+    let mtu = parsed.mtu;
 
     let thread = std::thread::spawn(move || {
         let rt = match tokio::runtime::Runtime::new() {
@@ -333,7 +319,7 @@ pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_startTunnel
         };
 
         rt.block_on(async move {
-            let tun_device = match AndroidTunDevice::new(fd, 1420) {
+            let tun_device = match AndroidTunDevice::new(fd, mtu) {
                 Ok(d) => d,
                 Err(e) => { log::error!("tunnel: failed to wrap TUN fd {fd}: {e}"); return; }
             };
@@ -352,7 +338,6 @@ pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_startTunnel
                 Ok(device) => {
                     log::info!("WireGuard tunnel started successfully");
 
-                    // Move uapi_client into the polling task — avoids holding MutexGuard across await
                     let stats_arc = stats_clone;
                     tokio::spawn(async move {
                         loop {
@@ -386,34 +371,12 @@ pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_startTunnel
         stats,
     });
 
-    0
+    true
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_stopTunnel<'local>(
-    _env: JNIEnv<'local>,
-    _obj: JObject<'local>,
-) -> jint {
-    if stop_tunnel_impl() { 0 } else { -1 }
-}
-
-/// Returns tunnel stats as "lastHandshakeSecs|rxBytes|txBytes" or empty string if no tunnel.
-#[unsafe(no_mangle)]
-pub extern "C" fn Java_net_mullvad_gotatunandroid_vpn_GotaTunWrapper_getStats<'local>(
-    env: JNIEnv<'local>,
-    _obj: JObject<'local>,
-) -> jstring {
-    let result = TUNNEL.lock().unwrap().as_ref().map(|h| {
-        let s = h.stats.lock().unwrap();
-        format!("{}|{}|{}", s.last_handshake_epoch_secs, s.rx_bytes, s.tx_bytes)
-    }).unwrap_or_default();
-
-    env.new_string(result)
-        .map(|s| s.into_raw())
-        .unwrap_or(std::ptr::null_mut())
-}
-
-fn stop_tunnel_impl() -> bool {
+/// Stop the active WireGuard tunnel. Returns true if a tunnel was running.
+#[uniffi::export]
+fn stop_tunnel() -> bool {
     match TUNNEL.lock().unwrap().take() {
         Some(mut handle) => {
             let _ = handle.stop_tx.send(());
@@ -423,3 +386,15 @@ fn stop_tunnel_impl() -> bool {
         None => false,
     }
 }
+
+/// Returns current tunnel stats as "lastHandshakeEpochSecs|rxBytes|txBytes",
+/// or None when no tunnel is active.
+#[uniffi::export]
+fn get_stats() -> Option<String> {
+    TUNNEL.lock().unwrap().as_ref().map(|h| {
+        let s = h.stats.lock().unwrap();
+        format!("{}|{}|{}", s.last_handshake_epoch_secs, s.rx_bytes, s.tx_bytes)
+    })
+}
+
+uniffi::setup_scaffolding!();

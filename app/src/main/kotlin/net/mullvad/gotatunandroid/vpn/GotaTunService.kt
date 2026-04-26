@@ -20,10 +20,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import net.mullvad.gotatunandroid.MainActivity
 import net.mullvad.gotatunandroid.domain.WireGuardConfigParser
 import net.mullvad.gotatunandroid.domain.model.SplitTunnelingConfig
 import net.mullvad.gotatunandroid.domain.model.SplitTunnelingMode
+import net.mullvad.gotatunandroid.ffi.SocketProtector
+import net.mullvad.gotatunandroid.ffi.getStats
+import net.mullvad.gotatunandroid.ffi.startTunnel
+import net.mullvad.gotatunandroid.ffi.stopTunnel as stopTunnelRust
 
 data class TunnelStats(val lastHandshakeEpochSecs: Long, val rxBytes: Long, val txBytes: Long)
 
@@ -31,8 +37,15 @@ class GotaTunService : VpnService() {
 
   private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
   private var tunnelInterface: ParcelFileDescriptor? = null
-  private val gotaTunWrapper = GotaTunWrapper()
   private var statsJob: Job? = null
+  /** Serialises all start/stop operations so they never run concurrently. */
+  private val tunnelMutex = Mutex()
+
+  /** SocketProtector implementation — delegates to VpnService.protect(). */
+  private val socketProtector =
+      object : SocketProtector {
+        override fun protect(fd: Int): Boolean = this@GotaTunService.protect(fd)
+      }
 
   companion object {
     const val ACTION_CONNECT = "net.mullvad.gotatunandroid.vpn.CONNECT"
@@ -51,6 +64,9 @@ class GotaTunService : VpnService() {
 
   override fun onCreate() {
     super.onCreate()
+    // Reset potentially stale state from a previous service instance (START_STICKY restart).
+    _serviceState.value = VpnState.Idle
+    _tunnelStats.value = null
     createNotificationChannel()
   }
 
@@ -76,9 +92,21 @@ class GotaTunService : VpnService() {
   private fun startTunnel(config: String, splitExtra: String) {
     _serviceState.value = VpnState.Connecting
     serviceScope.launch(Dispatchers.IO) {
-      try {
-        val vpnConfig = WireGuardConfigParser.parse(config)
-        val builder = Builder()
+      tunnelMutex.withLock {
+        try {
+          // Stop any previously running tunnel before starting a new one.
+          // This is the key fix for config-switch / reconnect failures.
+          if (_serviceState.value !is VpnState.Idle) {
+            statsJob?.cancel()
+            statsJob = null
+            runCatching { stopTunnelRust() }
+            tunnelInterface?.close()
+            tunnelInterface = null
+          }
+          _serviceState.value = VpnState.Connecting
+
+          val vpnConfig = WireGuardConfigParser.parse(config)
+          val builder = Builder()
 
         vpnConfig.interfaceConfig.addresses.forEach { cidr ->
           val parts = cidr.split("/")
@@ -117,32 +145,36 @@ class GotaTunService : VpnService() {
         }
 
         builder.setSession("GotaTun")
-        tunnelInterface = builder.establish()
+          tunnelInterface = builder.establish()
 
-        tunnelInterface?.let { pfd ->
-          val fd = pfd.detachFd()
-          val result = gotaTunWrapper.startTunnel(fd, config, this@GotaTunService)
-          if (result == 0) {
-            _serviceState.value =
-                VpnState.Connected(vpnConfig.copy(splitTunneling = splitTunneling))
-            updateNotification("Connected", connected = true)
-            startStatsPolling()
-          } else {
-            _serviceState.value = VpnState.Error("Native tunnel start failed: $result")
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-          }
-        }
-            ?: run {
-              _serviceState.value = VpnState.Error("Failed to establish tunnel interface")
+          tunnelInterface?.let { pfd ->
+            val fd = pfd.detachFd()
+            // After detachFd() the PFD no longer owns the fd; clear the field so
+            // stopTunnel() doesn't try to close an already-detached descriptor.
+            tunnelInterface = null
+            val result = startTunnel(fd, config, socketProtector)
+            if (result) {
+              _serviceState.value =
+                  VpnState.Connected(vpnConfig.copy(splitTunneling = splitTunneling))
+              updateNotification("Connected", connected = true)
+              startStatsPolling()
+            } else {
+              _serviceState.value = VpnState.Error("Native tunnel start failed")
               stopForeground(STOP_FOREGROUND_REMOVE)
               stopSelf()
             }
-      } catch (e: Exception) {
-        Log.e("GotaTunService", "Error starting tunnel", e)
-        _serviceState.value = VpnState.Error(e.message ?: "Unknown error")
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+          }
+              ?: run {
+                _serviceState.value = VpnState.Error("Failed to establish tunnel interface")
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+              }
+        } catch (e: Exception) {
+          Log.e("GotaTunService", "Error starting tunnel", e)
+          _serviceState.value = VpnState.Error(e.message ?: "Unknown error")
+          stopForeground(STOP_FOREGROUND_REMOVE)
+          stopSelf()
+        }
       }
     }
   }
@@ -155,7 +187,7 @@ class GotaTunService : VpnService() {
           var prevTx = 0L
           while (true) {
             delay(2_000L)
-            val raw = runCatching { gotaTunWrapper.getStats() }.getOrNull() ?: continue
+            val raw = runCatching { getStats() }.getOrNull() ?: continue
             if (raw.isBlank()) continue
             val parts = raw.split("|")
             if (parts.size != 3) continue
@@ -182,18 +214,20 @@ class GotaTunService : VpnService() {
     _tunnelStats.value = null
     _serviceState.value = VpnState.Disconnecting
     serviceScope.launch(Dispatchers.IO) {
-      try {
-        gotaTunWrapper.stopTunnel()
-        tunnelInterface?.close()
-        tunnelInterface = null
-        _serviceState.value = VpnState.Idle
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
-      } catch (e: Exception) {
-        Log.e("GotaTunService", "Error stopping tunnel", e)
-        _serviceState.value = VpnState.Error(e.message ?: "Unknown error")
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+      tunnelMutex.withLock {
+        try {
+          stopTunnelRust()
+          tunnelInterface?.close()
+          tunnelInterface = null
+          _serviceState.value = VpnState.Idle
+          stopForeground(STOP_FOREGROUND_REMOVE)
+          stopSelf()
+        } catch (e: Exception) {
+          Log.e("GotaTunService", "Error stopping tunnel", e)
+          _serviceState.value = VpnState.Error(e.message ?: "Unknown error")
+          stopForeground(STOP_FOREGROUND_REMOVE)
+          stopSelf()
+        }
       }
     }
   }

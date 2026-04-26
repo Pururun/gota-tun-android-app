@@ -152,4 +152,5 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     "ksp"(libs.androidx.room.compiler)
     "ksp"(libs.moshi.kotlin.codegen)
+    implementation("net.java.dev.jna:jna:5.18.1@aar")
 }

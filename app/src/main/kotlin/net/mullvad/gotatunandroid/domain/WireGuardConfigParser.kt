@@ -118,7 +118,7 @@ object WireGuardConfigParser {
                 appendLine("AllowedIPs = ${peer.allowedIps.joinToString(", ")}")
             }
             if (peer.endpointHost.isNotEmpty()) {
-                val port = peer.endpointPort ?: (0..65535).random() // safety-net; port is normally resolved at save time
+                val port = peer.endpointPort ?: (0..65535).random() // safety-net; port is normally resolved at connect time
                 appendLine("Endpoint = ${peer.endpointHost}:$port")
             }
         }
