@@ -12,6 +12,7 @@ kotlin = "2.3.21"
 composeBom = "2026.04.01"
 googleDevtoolsKsp = "2.3.6"
 metro = "0.13.2"
+rust-android = "0.10.1"
 navigation3 = "1.1.1"
 roomRuntime = "2.8.4"
 roomKtx = "2.8.4"
@@ -92,3 +93,4 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "googleDevtoolsKsp" }
 metro = { id = "dev.zacsweers.metro", version.ref = "metro" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+rust-android = { id = "net.mullvad.rust-android", version.ref = "rust-android" }

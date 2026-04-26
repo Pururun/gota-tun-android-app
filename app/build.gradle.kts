@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.google.devtools.ksp)
     alias(libs.plugins.metro)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.rust.android)
 }
 
 kotlin {
@@ -49,78 +50,30 @@ android {
     buildFeatures {
         compose = true
     }
-
-    sourceSets["main"].jniLibs.directories.add("src/main/jniLibs")
 }
 
-// ======== Rust / cargo-ndk build tasks ========
+// ======== Rust / rust-android-gradle plugin ========
 
-val ndkHome: String = System.getenv("ANDROID_NDK_HOME")
-    ?: run {
-        val ndkDir = File("${System.getenv("HOME")}/Library/Android/sdk/ndk")
-        val latestNdk = ndkDir.listFiles()?.sortedDescending()?.firstOrNull()?.name ?: "27.2.12479018"
-        "${ndkDir.absolutePath}/$latestNdk"
-    }
-
-val rustDir = rootProject.file("rust").absolutePath
-
-val buildRustDebug by tasks.registering(Exec::class) {
-    group = "rust"
-    description = "Build Rust JNI library for Android (debug)"
-    workingDir(rustDir)
-    inputs.dir(file("$rustDir/src"))
-    inputs.file(file("$rustDir/Cargo.toml"))
-    inputs.file(file("$rustDir/Cargo.lock"))
-    outputs.dir(file("src/main/jniLibs"))
-    // Clean first so stale hashed dependency .so files don't accumulate
-    doFirst { delete(file("src/main/jniLibs")) }
-    commandLine(
-        "cargo", "ndk",
-        "-t", "arm64-v8a",
-        "-t", "armeabi-v7a",
-        "-t", "x86_64",
-        "-o", file("src/main/jniLibs").absolutePath,
-        "--",
-        "build"
-    )
-    environment("ANDROID_NDK_HOME", ndkHome)
+cargo {
+    module = "../rust"
+    libname = "gotatun_jni"
+    targets = listOf("arm64", "arm", "x86_64")
+    // Default profile is "debug". Override via local.properties: rust.profile=release
 }
 
-val buildRustRelease by tasks.registering(Exec::class) {
-    group = "rust"
-    description = "Build Rust JNI library for Android (release)"
-    workingDir(rustDir)
-    inputs.dir(file("$rustDir/src"))
-    inputs.file(file("$rustDir/Cargo.toml"))
-    inputs.file(file("$rustDir/Cargo.lock"))
-    outputs.dir(file("src/main/jniLibs"))
-    // Clean first so stale hashed dependency .so files don't accumulate
-    doFirst { delete(file("src/main/jniLibs")) }
-    commandLine(
-        "cargo", "ndk",
-        "-t", "arm64-v8a",
-        "-t", "armeabi-v7a",
-        "-t", "x86_64",
-        "-o", file("src/main/jniLibs").absolutePath,
-        "--",
-        "build", "--release"
-    )
-    environment("ANDROID_NDK_HOME", ndkHome)
-}
-
-// Generate UniFFI Kotlin bindings from the compiled arm64-v8a debug library.
+// Generate UniFFI Kotlin bindings from the compiled arm64-v8a library.
 // The bindings are identical for all ABI/profile variants, so we only need one.
 val generateUniFFIBindings by tasks.registering(Exec::class) {
     group = "rust"
     description = "Generate UniFFI Kotlin bindings from the compiled Rust JNI library"
-    dependsOn(buildRustDebug)
-    workingDir(rustDir)
-    val soFile = file("src/main/jniLibs/arm64-v8a/libgotatun_jni.so")
+    dependsOn("cargoBuild")
+    workingDir(rootProject.file("rust"))
+    val soFile = layout.buildDirectory.file("rustJniLibs/android/arm64-v8a/libgotatun_jni.so").get().asFile
     // UniFFI appends the package path to --out-dir, so point it at the sources root.
     // The file will land at src/main/kotlin/net/mullvad/gotatunandroid/ffi/gotatun_jni.kt
     val bindingsOutDir = file("src/main/kotlin")
     inputs.file(soFile)
-    inputs.file(file("$rustDir/uniffi.toml"))
+    inputs.file(rootProject.file("rust/uniffi.toml"))
     outputs.dir(bindingsOutDir)
     commandLine(
         "cargo", "run", "--bin", "bindgen", "--",
@@ -130,14 +83,17 @@ val generateUniFFIBindings by tasks.registering(Exec::class) {
         "--no-format",
         "--out-dir", bindingsOutDir.absolutePath
     )
-    environment("ANDROID_NDK_HOME", ndkHome)
 }
 
-// Wire Rust build into the Android build pipeline
+// Wire Rust JNI build into the Android merge task for all build variants
+val rustJniLibsDir = layout.buildDirectory.dir("rustJniLibs/android").get()
+tasks.matching { it.name.matches(Regex("merge.*JniLibFolders")) }.configureEach {
+    inputs.dir(rustJniLibsDir)
+    dependsOn("cargoBuild")
+}
+
+// Kotlin compilation and KSP processing must wait for the generated bindings file
 afterEvaluate {
-    tasks.named("mergeDebugJniLibFolders") { dependsOn(buildRustDebug) }
-    tasks.named("mergeReleaseJniLibFolders") { dependsOn(buildRustRelease) }
-    // Kotlin compilation and KSP processing must both wait for the generated bindings file
     tasks.named("compileDebugKotlin") { dependsOn(generateUniFFIBindings) }
     tasks.named("compileReleaseKotlin") { dependsOn(generateUniFFIBindings) }
     tasks.named("kspDebugKotlin") { dependsOn(generateUniFFIBindings) }
