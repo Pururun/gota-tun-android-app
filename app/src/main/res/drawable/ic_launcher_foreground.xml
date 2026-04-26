@@ -4,37 +4,139 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Mole Head / Body (Brown) -->
-    <path
-        android:fillColor="#C68E4F"
-        android:pathData="M35,48 C35,68 40,85 54,85 C68,85 73,68 73,48 L35,48 Z" />
+    <!--
+         Drawing order (back → front):
+         LEFT CLAW → RIGHT CLAW → BODY → SNOUT →
+         HAT DOME → HAT BRIM → HI-VIS BAND → HAT HIGHLIGHT →
+         LEFT EYE → RIGHT EYE → NOSE TIP
+    -->
 
-    <!-- Snout (Lighter Brown) -->
+    <!-- ═══ LEFT DIGGING CLAW ═══
+         Fan-shaped paddle with 3 rounded finger-bumps pointing forward-left.
+         Moles have enormous fore-claws relative to their body — make it prominent. -->
     <path
-        android:fillColor="#E1A975"
-        android:pathData="M48,55 C48,70 54,80 54,80 C54,80 60,70 60,55 C60,50 54,48 54,48 C54,48 48,50 48,55 Z" />
+        android:fillColor="#5C3010"
+        android:pathData="M30,66
+                          Q22,58 13,57
+                          Q7,55  4,60
+                          Q2,66  6,70
+                          Q4,75  8,77
+                          Q7,82 11,80
+                          Q15,84 19,79
+                          Q24,82 28,76
+                          Z"/>
+    <!-- Claw highlight (slightly lighter rim) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#7A4018"
+        android:strokeWidth="1.2"
+        android:pathData="M4,60 Q2,66 6,70 Q4,75 8,77 Q7,82 11,80"/>
 
-    <!-- Hard Hat (Yellow) -->
+    <!-- ═══ RIGHT DIGGING CLAW (mirror) ═══ -->
+    <path
+        android:fillColor="#5C3010"
+        android:pathData="M78,66
+                          Q86,58 95,57
+                          Q101,55 104,60
+                          Q106,66 102,70
+                          Q104,75 100,77
+                          Q101,82 97,80
+                          Q93,84 89,79
+                          Q84,82 80,76
+                          Z"/>
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#7A4018"
+        android:strokeWidth="1.2"
+        android:pathData="M104,60 Q106,66 102,70 Q104,75 100,77 Q101,82 97,80"/>
+
+    <!-- ═══ MOLE BODY (head + torso, one continuous pear shape) ═══
+         Narrower at the top (head), wider at the shoulders, rounding to a plump
+         belly at the bottom — classic mole silhouette. -->
+    <path
+        android:fillColor="#8C4A1C"
+        android:pathData="M38,46
+                          Q28,58 26,74
+                          Q24,90 38,96
+                          Q54,100 70,96
+                          Q84,90 82,74
+                          Q80,58 70,46
+                          Q62,34 54,34
+                          Q46,34 38,46
+                          Z"/>
+
+    <!-- Subtle fur sheen — a lighter highlight down the body centre -->
+    <path
+        android:fillColor="#A45A22"
+        android:pathData="M48,40 Q44,56 44,76 Q48,88 54,90 Q60,88 64,76 Q64,56 60,40 Q57,36 54,36 Q51,36 48,40 Z"/>
+
+    <!-- ═══ SNOUT (teardrop nose, long like a real mole's proboscis) ═══ -->
+    <path
+        android:fillColor="#C87840"
+        android:pathData="M44,56
+                          Q42,74 54,82
+                          Q66,74 64,56
+                          Q64,48 54,46
+                          Q44,48 44,56
+                          Z"/>
+    <!-- Snout centre crease -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#A8622E"
+        android:strokeWidth="1"
+        android:pathData="M54,50 Q54,66 54,80"/>
+
+    <!-- ═══ HARDHAT DOME (bright safety yellow) ═══
+         The dome sits on the head above the brim line at y=44. The peak is at
+         (54,16) — safely above the tunnel arch in the background, visible
+         against the earthy sky. -->
     <path
         android:fillColor="#FFD600"
-        android:pathData="M54,25 C45,25 35,30 32,45 L76,45 C73,30 63,25 54,25 Z" />
+        android:pathData="M32,44
+                          Q30,20 54,16
+                          Q78,20 76,44
+                          Z"/>
 
-    <!-- Hard Hat Brim -->
+    <!-- ═══ HARDHAT BRIM (amber — wider than the dome for that hard-hat silhouette) ═══ -->
     <path
-        android:fillColor="#FFB300"
-        android:pathData="M30,45 L78,45 L80,48 L28,48 Z" />
+        android:fillColor="#FF9F00"
+        android:pathData="M24,44 L84,44 L86,52 L22,52 Z"/>
 
-    <!-- Eyes (Small black dots) -->
+    <!-- ═══ HI-VIS BAND (orange safety stripe near the brim) ═══ -->
     <path
-        android:fillColor="#000000"
-        android:pathData="M49,53 A1.5,1.5 0 1,1 48.9,53 Z" />
-    <path
-        android:fillColor="#000000"
-        android:pathData="M59,53 A1.5,1.5 0 1,1 58.9,53 Z" />
+        android:fillColor="#FF5722"
+        android:pathData="M30,38 Q30,44 32,44 L76,44 Q78,44 78,38 Q66,36 54,36 Q42,36 30,38 Z"/>
 
-    <!-- Nose Tip -->
+    <!-- ═══ HAT SPECULAR HIGHLIGHT (makes the hard plastic dome look glossy) ═══ -->
     <path
-        android:fillColor="#8D5B39"
-        android:pathData="M52,78 C52,80 54,82 54,82 C54,82 56,80 56,78 C56,76 54,75 54,75 C54,75 52,76 52,78 Z" />
+        android:fillColor="#FFEE58"
+        android:pathData="M40,22 Q37,28 40,34 Q45,31 47,25 Q45,19 40,22 Z"/>
+
+    <!-- ═══ LEFT EYE ═══ (tiny, vestigial — moles barely see) -->
+    <path
+        android:fillColor="#0D0604"
+        android:pathData="M43,53 A3.5,3 0 1,0 50,53 A3.5,3 0 1,0 43,53 Z"/>
+    <!-- Eye highlight -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,51 A1.2,1 0 1,0 46.4,51 A1.2,1 0 1,0 44,51 Z"/>
+
+    <!-- ═══ RIGHT EYE ═══ -->
+    <path
+        android:fillColor="#0D0604"
+        android:pathData="M58,53 A3.5,3 0 1,0 65,53 A3.5,3 0 1,0 58,53 Z"/>
+    <!-- Eye highlight -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M59,51 A1.2,1 0 1,0 61.4,51 A1.2,1 0 1,0 59,51 Z"/>
+
+    <!-- ═══ NOSE TIP (dark moist button at snout end) ═══ -->
+    <path
+        android:fillColor="#6E320E"
+        android:pathData="M50.5,78 A3.5,2.5 0 1,0 57.5,78 A3.5,2.5 0 1,0 50.5,78 Z"/>
+    <!-- Nose highlight -->
+    <path
+        android:fillColor="#A05030"
+        android:pathData="M52,76 A1.2,0.8 0 1,0 54.4,76 A1.2,0.8 0 1,0 52,76 Z"/>
 
 </vector>

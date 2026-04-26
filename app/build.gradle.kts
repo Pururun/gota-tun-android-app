@@ -68,6 +68,12 @@ val buildRustDebug by tasks.registering(Exec::class) {
     group = "rust"
     description = "Build Rust JNI library for Android (debug)"
     workingDir(rustDir)
+    inputs.dir(file("$rustDir/src"))
+    inputs.file(file("$rustDir/Cargo.toml"))
+    inputs.file(file("$rustDir/Cargo.lock"))
+    outputs.dir(file("src/main/jniLibs"))
+    // Clean first so stale hashed dependency .so files don't accumulate
+    doFirst { delete(file("src/main/jniLibs")) }
     commandLine(
         "cargo", "ndk",
         "-t", "arm64-v8a",
@@ -84,6 +90,12 @@ val buildRustRelease by tasks.registering(Exec::class) {
     group = "rust"
     description = "Build Rust JNI library for Android (release)"
     workingDir(rustDir)
+    inputs.dir(file("$rustDir/src"))
+    inputs.file(file("$rustDir/Cargo.toml"))
+    inputs.file(file("$rustDir/Cargo.lock"))
+    outputs.dir(file("src/main/jniLibs"))
+    // Clean first so stale hashed dependency .so files don't accumulate
+    doFirst { delete(file("src/main/jniLibs")) }
     commandLine(
         "cargo", "ndk",
         "-t", "arm64-v8a",
@@ -96,10 +108,40 @@ val buildRustRelease by tasks.registering(Exec::class) {
     environment("ANDROID_NDK_HOME", ndkHome)
 }
 
+// Generate UniFFI Kotlin bindings from the compiled arm64-v8a debug library.
+// The bindings are identical for all ABI/profile variants, so we only need one.
+val generateUniFFIBindings by tasks.registering(Exec::class) {
+    group = "rust"
+    description = "Generate UniFFI Kotlin bindings from the compiled Rust JNI library"
+    dependsOn(buildRustDebug)
+    workingDir(rustDir)
+    val soFile = file("src/main/jniLibs/arm64-v8a/libgotatun_jni.so")
+    // UniFFI appends the package path to --out-dir, so point it at the sources root.
+    // The file will land at src/main/kotlin/net/mullvad/gotatunandroid/ffi/gotatun_jni.kt
+    val bindingsOutDir = file("src/main/kotlin")
+    inputs.file(soFile)
+    inputs.file(file("$rustDir/uniffi.toml"))
+    outputs.dir(bindingsOutDir)
+    commandLine(
+        "cargo", "run", "--bin", "bindgen", "--",
+        "generate",
+        "--library", soFile.absolutePath,
+        "--language", "kotlin",
+        "--no-format",
+        "--out-dir", bindingsOutDir.absolutePath
+    )
+    environment("ANDROID_NDK_HOME", ndkHome)
+}
+
 // Wire Rust build into the Android build pipeline
 afterEvaluate {
     tasks.named("mergeDebugJniLibFolders") { dependsOn(buildRustDebug) }
     tasks.named("mergeReleaseJniLibFolders") { dependsOn(buildRustRelease) }
+    // Kotlin compilation and KSP processing must both wait for the generated bindings file
+    tasks.named("compileDebugKotlin") { dependsOn(generateUniFFIBindings) }
+    tasks.named("compileReleaseKotlin") { dependsOn(generateUniFFIBindings) }
+    tasks.named("kspDebugKotlin") { dependsOn(generateUniFFIBindings) }
+    tasks.named("kspReleaseKotlin") { dependsOn(generateUniFFIBindings) }
 }
 
 dependencies {

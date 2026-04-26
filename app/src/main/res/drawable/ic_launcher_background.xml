@@ -4,7 +4,50 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Deep tunnel darkness — the hole the mole lives in -->
     <path
-        android:fillColor="#0D1B2A"
-        android:pathData="M0,0h108v108h-108z" />
+        android:fillColor="#060E18"
+        android:pathData="M0,0 H108 V108 H0 Z"/>
+
+    <!--
+         Earth/ground surround with circular tunnel-arch cutout.
+         Even-odd fill: the outer rect IS filled, the inner D-shape IS NOT —
+         leaving a tunnel opening from x=18 at the base curving up to (54,42)
+         and back down to x=90.
+    -->
+    <path
+        android:fillColor="#3D2009"
+        android:fillType="evenOdd"
+        android:pathData="M0,0 H108 V108 H0 Z
+                          M18,78 A36,36 0 0,1 90,78 L90,108 L18,108 Z"/>
+
+    <!-- Lighter topsoil horizon band -->
+    <path
+        android:fillColor="#5C2F0D"
+        android:pathData="M0,0 H108 V32 Q54,22 0,32 Z"/>
+
+    <!-- Subsurface soil band — gives the earth layered depth -->
+    <path
+        android:fillColor="#481E06"
+        android:pathData="M0,36 Q54,46 108,36 L108,50 Q54,60 0,50 Z"/>
+
+    <!-- Dark rock / root pebbles for texture -->
+    <path
+        android:fillColor="#2A0F04"
+        android:pathData="M10,55 Q14,52 18,55 Q14,58 10,55 Z"/>
+    <path
+        android:fillColor="#2A0F04"
+        android:pathData="M82,46 Q86,43 90,46 Q86,49 82,46 Z"/>
+    <path
+        android:fillColor="#6A3A12"
+        android:pathData="M56,66 Q60,64 63,67 Q60,70 56,66 Z"/>
+
+    <!-- Subtle tunnel wall "ring" highlight — a faint lighter arc just inside the arch edge -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#7A4418"
+        android:strokeWidth="2"
+        android:pathData="M22,78 A32,32 0 0,1 86,78"/>
+
 </vector>

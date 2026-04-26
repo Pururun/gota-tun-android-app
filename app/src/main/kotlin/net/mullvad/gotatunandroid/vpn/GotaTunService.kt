@@ -26,6 +26,7 @@ import net.mullvad.gotatunandroid.MainActivity
 import net.mullvad.gotatunandroid.domain.WireGuardConfigParser
 import net.mullvad.gotatunandroid.domain.model.SplitTunnelingConfig
 import net.mullvad.gotatunandroid.domain.model.SplitTunnelingMode
+import net.mullvad.gotatunandroid.domain.model.VpnConfig
 import net.mullvad.gotatunandroid.ffi.SocketProtector
 import net.mullvad.gotatunandroid.ffi.getStats
 import net.mullvad.gotatunandroid.ffi.startTunnel
@@ -54,6 +55,8 @@ class GotaTunService : VpnService() {
     const val EXTRA_SPLIT_TUNNELING = "extra_split_tunneling"
     private const val CHANNEL_ID = "vpn_service_channel"
     private const val NOTIFICATION_ID = 1
+    /** How long to poll for the first WireGuard handshake before giving up and marking Connected. */
+    private const val HANDSHAKE_TIMEOUT_MS = 30_000L
 
     private val _serviceState = MutableStateFlow<VpnState>(VpnState.Idle)
     val serviceState = _serviceState.asStateFlow()
@@ -154,10 +157,9 @@ class GotaTunService : VpnService() {
             tunnelInterface = null
             val result = startTunnel(fd, config, socketProtector)
             if (result) {
-              _serviceState.value =
-                  VpnState.Connected(vpnConfig.copy(splitTunneling = splitTunneling))
-              updateNotification("Connected", connected = true)
-              startStatsPolling()
+              // Native tunnel is up. Stay in Connecting and wait for the first
+              // WireGuard handshake before declaring Connected.
+              startHandshakeWait(vpnConfig.copy(splitTunneling = splitTunneling))
             } else {
               _serviceState.value = VpnState.Error("Native tunnel start failed")
               stopForeground(STOP_FOREGROUND_REMOVE)
@@ -179,7 +181,7 @@ class GotaTunService : VpnService() {
     }
   }
 
-  private fun startStatsPolling() {
+  private fun startStatsPolling(configName: String) {
     statsJob?.cancel()
     statsJob =
         serviceScope.launch(Dispatchers.IO) {
@@ -201,11 +203,48 @@ class GotaTunService : VpnService() {
             prevRx = rx
             prevTx = tx
             updateNotification(
-                "↑ ${formatBytes(txRate)}/s  ↓ ${formatBytes(rxRate)}/s",
+                content = "↑ ${formatBytes(txRate)}/s  ↓ ${formatBytes(rxRate)}/s",
                 connected = true,
+                configName = configName,
             )
           }
         }
+  }
+
+  /**
+   * Polls getStats() every second until the first WireGuard handshake is confirmed
+   * (lastHandshakeEpochSecs > 0), then calls [transitionToConnected].
+   *
+   * The job is stored in [statsJob] so [stopTunnel] can cancel it immediately.
+   * If no handshake arrives within [HANDSHAKE_TIMEOUT_MS] the tunnel is still
+   * marked Connected — the handshake will occur on first traffic.
+   */
+  private fun startHandshakeWait(vpnConfig: VpnConfig) {
+    statsJob?.cancel()
+    statsJob =
+        serviceScope.launch(Dispatchers.IO) {
+          val deadline = System.currentTimeMillis() + HANDSHAKE_TIMEOUT_MS
+          while (System.currentTimeMillis() < deadline) {
+            delay(1_000L)
+            val raw = runCatching { getStats() }.getOrNull() ?: continue
+            if (raw.isBlank()) continue
+            val parts = raw.split("|")
+            if (parts.size == 3 && (parts[0].toLongOrNull() ?: 0L) > 0L) {
+              transitionToConnected(vpnConfig)
+              return@launch
+            }
+          }
+          // Timeout reached with no handshake yet — tunnel is up, proceed as Connected.
+          if (_serviceState.value is VpnState.Connecting) {
+            transitionToConnected(vpnConfig)
+          }
+        }
+  }
+
+  private fun transitionToConnected(vpnConfig: VpnConfig) {
+    _serviceState.value = VpnState.Connected(vpnConfig)
+    updateNotification("Connected", connected = true, configName = vpnConfig.name)
+    startStatsPolling(vpnConfig.name)
   }
 
   private fun stopTunnel() {
@@ -250,7 +289,11 @@ class GotaTunService : VpnService() {
     return PendingIntent.getService(this, 0, intent, PendingIntent.FLAG_IMMUTABLE)
   }
 
-  private fun createNotification(content: String, connected: Boolean): Notification {
+  private fun createNotification(
+      content: String,
+      connected: Boolean,
+      configName: String? = null,
+  ): Notification {
     val openAppIntent =
         PendingIntent.getActivity(
             this,
@@ -258,9 +301,10 @@ class GotaTunService : VpnService() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE,
         )
+    val title = if (configName != null) "GotaTun – $configName" else "GotaTun VPN"
     val builder =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("GotaTun VPN")
+            .setContentTitle(title)
             .setContentText(content)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(openAppIntent)
@@ -271,9 +315,13 @@ class GotaTunService : VpnService() {
     return builder.build()
   }
 
-  private fun updateNotification(content: String, connected: Boolean) {
+  private fun updateNotification(
+      content: String,
+      connected: Boolean,
+      configName: String? = null,
+  ) {
     getSystemService(NotificationManager::class.java)
-        .notify(NOTIFICATION_ID, createNotification(content, connected))
+        .notify(NOTIFICATION_ID, createNotification(content, connected, configName))
   }
 
   override fun onDestroy() {

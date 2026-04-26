@@ -23,6 +23,19 @@ uniffi = { version = "0.31.1", features = [ "build" ] }
 [features]
 ffi-trace = ["uniffi/ffi-trace"]
 
+# Strip embedded DWARF debug info from the .so on debug builds.
+# This reduces the library from ~110 MB → ~10 MB.
+# The binary is still fully debuggable via source-level stepping; the NDK
+# keeps a separate .so with symbols in the build tree for symbolication.
+[profile.dev]
+strip = "debuginfo"
+
+# Release builds: full optimisation + strip everything.
+[profile.release]
+opt-level = 3
+strip = true
+lto = true
+
 [[bin]]
 # This can be whatever name makes sense for your project, but the rest of this tutorial assumes uniffi-bindgen.
 name = "bindgen"

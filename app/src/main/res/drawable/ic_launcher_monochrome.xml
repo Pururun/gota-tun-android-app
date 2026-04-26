@@ -4,25 +4,64 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Main Silhouette -->
+    <!--
+         Monochrome / Themed icon — the system tints this with the wallpaper colour.
+         Strategy: one black filled silhouette covering the full mole+hat+claws shape,
+         then white cutouts to carve in the key details (eyes, snout, hat brim gap).
+         This keeps the character readable in any tint without relying on colour.
+    -->
+
+    <!-- ── FULL OUTER SILHOUETTE (claws + body + hat dome + brim) ── -->
+
+    <!-- Left claw -->
     <path
         android:fillColor="#000000"
-        android:pathData="M54,25 C45,25 35,30 32,45 L35,48 C35,68 40,85 54,85 C68,85 73,68 73,48 L76,45 C73,30 63,25 54,25 Z" />
+        android:pathData="M30,66 Q22,58 13,57 Q7,55 4,60 Q2,66 6,70 Q4,75 8,77 Q7,82 11,80 Q15,84 19,79 Q24,82 28,76 Z"/>
 
-    <!-- Cutouts (Internal Details) -->
-    <!-- Hat Brim Cutout -->
+    <!-- Right claw -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M78,66 Q86,58 95,57 Q101,55 104,60 Q106,66 102,70 Q104,75 100,77 Q101,82 97,80 Q93,84 89,79 Q84,82 80,76 Z"/>
+
+    <!-- Body + head -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M38,46 Q28,58 26,74 Q24,90 38,96 Q54,100 70,96 Q84,90 82,74 Q80,58 70,46 Q62,34 54,34 Q46,34 38,46 Z"/>
+
+    <!-- Hat dome -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M32,44 Q30,20 54,16 Q78,20 76,44 Z"/>
+
+    <!-- Hat brim (slightly wider) -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M22,44 L86,44 L88,54 L20,54 Z"/>
+
+    <!-- ── WHITE CUTOUTS carve internal details into the silhouette ── -->
+
+    <!-- Snout — white teardrop with an even-odd inner outline so the snout
+         reads as a lighter area rather than a void -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M30,45 L78,45 L80,48 L28,48 Z" />
+        android:fillType="evenOdd"
+        android:pathData="M44,56 Q42,74 54,82 Q66,74 64,56 Q64,48 54,46 Q44,48 44,56 Z
+                          M47,57 Q47,52 54,50 Q61,52 61,57 Q61,72 54,78 Q47,72 47,57 Z"/>
 
-    <!-- Snout Outline Cutout -->
+    <!-- Left eye -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M48,55 C48,70 54,80 54,80 C54,80 60,70 60,55 C60,50 54,48 54,48 C54,48 48,50 48,55 Z M50,55 C50,52 54,50 54,50 C54,50 58,52 58,55 C58,68 54,77 54,77 C54,77 50,68 50,55 Z" />
+        android:pathData="M43,53 A3.5,3 0 1,0 50,53 A3.5,3 0 1,0 43,53 Z"/>
 
-    <!-- Eyes Cutout -->
+    <!-- Right eye -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M49,53 A1.5,1.5 0 1,1 48.9,53 Z M59,53 A1.5,1.5 0 1,1 58.9,53 Z" />
+        android:pathData="M58,53 A3.5,3 0 1,0 65,53 A3.5,3 0 1,0 58,53 Z"/>
+
+    <!-- Hat brim separation gap — thin white sliver between dome and brim
+         so the two shapes read as distinct at small sizes -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,43 L78,43 L78,45 L30,45 Z"/>
 
 </vector>

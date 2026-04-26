@@ -2,6 +2,7 @@ package net.mullvad.gotatunandroid
 
 import android.app.Activity
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
@@ -12,6 +13,9 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.ui.NavDisplay
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import dev.zacsweers.metro.createGraphFactory
 import net.mullvad.gotatunandroid.di.AppGraph
 import net.mullvad.gotatunandroid.ui.config.ConfigImportScreen
@@ -25,6 +29,7 @@ import net.mullvad.gotatunandroid.ui.navigation.Destination
 import net.mullvad.gotatunandroid.ui.settings.SettingsScreen
 import net.mullvad.gotatunandroid.ui.splittunneling.SplitTunnelingScreen
 import net.mullvad.gotatunandroid.ui.splittunneling.SplitTunnelingViewModel
+import net.mullvad.gotatunandroid.vpn.VpnState
 import net.mullvad.gotatunandroid.ui.theme.GotaTunAndroidTheme
 
 class MainActivity : ComponentActivity() {
@@ -79,6 +84,7 @@ class MainActivity : ComponentActivity() {
         }
       }
 
+  @OptIn(ExperimentalPermissionsApi::class)
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
@@ -101,6 +107,17 @@ class MainActivity : ComponentActivity() {
             entryProvider =
                 entryProvider {
                   entry<Destination.Dashboard> {
+                    // Request POST_NOTIFICATIONS permission on Android 13+ so the
+                    // foreground-service notification is visible to the user.
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                      val notifPermission =
+                          rememberPermissionState(android.Manifest.permission.POST_NOTIFICATIONS)
+                      LaunchedEffect(notifPermission.status) {
+                        if (!notifPermission.status.isGranted) {
+                          notifPermission.launchPermissionRequest()
+                        }
+                      }
+                    }
                     val viewModel: DashboardViewModel = viewModel {
                       DashboardViewModel(vpnController, configRepository)
                     }
@@ -136,9 +153,15 @@ class MainActivity : ComponentActivity() {
                         onBack = { navigationViewModel.popBackStack() },
                         onSave = { config ->
                           configRepository.saveConfig(config)
-                          // Only set as active when adding a brand-new config
                           if (destination.editConfigId == null) {
+                            // New config: make it active
                             configRepository.setActiveConfig(config.id)
+                          } else if (
+                              vpnController.state.value is VpnState.Connected &&
+                              configRepository.activeConfig.value?.id == config.id
+                          ) {
+                            // Edited the currently-connected config: reconnect to apply changes
+                            vpnController.connect(config)
                           }
                           navigationViewModel.popBackStack()
                         },
@@ -183,7 +206,7 @@ class MainActivity : ComponentActivity() {
                           )
                         },
                         onDeleteConfig = { listViewModel.deleteConfig(it) },
-                        onSelectConfig = { listViewModel.setActiveConfig(it) },
+                        onSelectConfig = { dashboardViewModelRef.selectConfig(it) },
                         onSplitTunneling = { configId ->
                           navigationViewModel.navigateTo(Destination.SplitTunneling(configId))
                         },

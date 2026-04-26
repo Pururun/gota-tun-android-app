@@ -29,15 +29,15 @@ class DashboardViewModel(
     val tunnelStats: StateFlow<TunnelStats?> = GotaTunService.tunnelStats
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    fun toggleConnection() {
-        val currentState = vpnState.value
-        if (currentState is VpnState.Connected) {
-            vpnController.disconnect()
-        } else if (currentState is VpnState.Idle || currentState is VpnState.Error) {
-            val config = configRepository.activeConfig.value
-            if (config != null) vpnController.connect(config)
-        }
+  fun toggleConnection() {
+    val currentState = vpnState.value
+    if (currentState is VpnState.Connected || currentState is VpnState.Connecting) {
+      vpnController.disconnect()
+    } else if (currentState is VpnState.Idle || currentState is VpnState.Error) {
+      val config = configRepository.activeConfig.value
+      if (config != null) vpnController.connect(config)
     }
+  }
 
     /**
      * Select a different active configuration. If currently connected, reconnects immediately

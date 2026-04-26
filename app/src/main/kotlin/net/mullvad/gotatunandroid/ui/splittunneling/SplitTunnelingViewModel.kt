@@ -122,8 +122,8 @@ class SplitTunnelingViewModel(
         )
     configRepository.saveConfig(updated)
     if ((vpnController.state.value as? VpnState.Connected)?.resolvedConfig?.id == configId) {
-        // If the config is currently active, reconnect to apply changes immediately
-        vpnController.disconnect()
+        // Reconnect to apply the new split-tunneling rules immediately.
+        // The service handles stopping the old tunnel before starting the new one.
         vpnController.connect(updated)
     }
   }

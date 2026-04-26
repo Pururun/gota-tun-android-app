@@ -359,7 +359,7 @@ fun ConnectionDetailsCard(config: VpnConfig) {
                     value = when (config.splitTunneling.mode) {
                         SplitTunnelingMode.EXCLUDE -> "Excluding apps"
                         SplitTunnelingMode.INCLUDE_ONLY -> "Selected apps only"
-                        else -> ""
+                        SplitTunnelingMode.DISABLED -> ""
                     }
                 )
             }
