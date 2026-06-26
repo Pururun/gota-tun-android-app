@@ -153,7 +153,7 @@ impl UdpTransportFactory for ProtectedUdpFactory {
         &mut self,
         params: &UdpTransportFactoryParams,
     ) -> io::Result<((Self::SendV4, Self::RecvV4), (Self::SendV6, Self::RecvV6))> {
-        let mut std_factory = UdpSocketFactory;
+        let mut std_factory = UdpSocketFactory::default();
         let result = std_factory.bind(params).await?;
         {
             use std::os::unix::io::AsFd;

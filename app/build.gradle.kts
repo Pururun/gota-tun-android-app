@@ -16,7 +16,7 @@ kotlin {
 }
 
 metro {
-    debug = true
+    debug = System.getenv("CI") == null && project.gradle.startParameter.taskNames.none { it.contains("Release", ignoreCase = true) }
     enableKotlinVersionCompatibilityChecks = false
 }
 
@@ -63,7 +63,7 @@ cargo {
 
 // Generate UniFFI Kotlin bindings from the compiled arm64-v8a library.
 // The bindings are identical for all ABI/profile variants, so we only need one.
-val generateUniFFIBindings by tasks.registering(Exec::class) {
+val generateUniFFIBindings = tasks.register<Exec>("generateUniFFIBindings") {
     group = "rust"
     description = "Generate UniFFI Kotlin bindings from the compiled Rust JNI library"
     dependsOn("cargoBuild")
@@ -126,5 +126,5 @@ dependencies {
     androidTestImplementation(libs.androidx.runner)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
-    implementation("net.java.dev.jna:jna:5.18.1@aar")
+    implementation(libs.jna) { artifact { type = "aar" } }
 }
