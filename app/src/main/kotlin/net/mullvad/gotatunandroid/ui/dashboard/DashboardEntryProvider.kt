@@ -36,18 +36,12 @@ fun EntryProviderScope<Destination>.dashboardEntry(
     val viewModel: DashboardViewModel = viewModel {
       DashboardViewModel(vpnController, configRepository, connectController)
     }
-    val state by viewModel.vpnState.collectAsState()
-    val activeConfig by viewModel.activeConfig.collectAsState()
-    val allConfigs by viewModel.allConfigs.collectAsState()
-    val tunnelStats by viewModel.tunnelStats.collectAsState()
+    val uiState by viewModel.uiState.collectAsState()
 
     DashboardScreen(
-        state = state,
-        activeConfig = activeConfig,
-        allConfigs = allConfigs,
-        tunnelStats = tunnelStats,
+        uiState = uiState,
         onToggle = { requestVpnPermissionThenConnect() },
-        onSelectConfig = { viewModel.selectConfig(it) },
+        onSelectConfig = viewModel::selectConfig,
         onAddManual = { navigateTo(Destination.ManualEntry()) },
         onImportFile = { navigateTo(Destination.ConfigImport) },
         onManageConfigs = {
