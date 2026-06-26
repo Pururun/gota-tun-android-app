@@ -1,6 +1,16 @@
 package net.mullvad.gotatunandroid.ui.config
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -9,7 +19,17 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FileOpen
-import androidx.compose.material3.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,6 +41,11 @@ import net.mullvad.gotatunandroid.domain.model.InterfaceConfig
 import net.mullvad.gotatunandroid.domain.model.PeerConfig
 import net.mullvad.gotatunandroid.domain.model.VpnConfig
 import net.mullvad.gotatunandroid.ui.theme.GotaTunAndroidTheme
+
+private val ButtonHeight = 56.dp
+private val IconSizeLarge = 120.dp
+private val IconSizeMedium = 72.dp
+private const val KeyPreviewLength = 8
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,7 +60,6 @@ fun ConfigImportScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                windowInsets = WindowInsets.statusBars,
                 title = { Text("Import Configuration", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -77,7 +101,7 @@ private fun IdleContent(modifier: Modifier = Modifier, onOpenFilePicker: () -> U
         Icon(
             Icons.Rounded.FileOpen,
             contentDescription = null,
-            modifier = Modifier.size(120.dp),
+            modifier = Modifier.size(IconSizeLarge),
             tint = MaterialTheme.colorScheme.primary
         )
         Spacer(modifier = Modifier.height(24.dp))
@@ -96,7 +120,7 @@ private fun IdleContent(modifier: Modifier = Modifier, onOpenFilePicker: () -> U
         Spacer(modifier = Modifier.height(48.dp))
         Button(
             onClick = onOpenFilePicker,
-            modifier = Modifier.fillMaxWidth().height(56.dp)
+            modifier = Modifier.fillMaxWidth().height(ButtonHeight)
         ) {
             Text("Choose File")
         }
@@ -120,7 +144,7 @@ private fun PreviewContent(
         Icon(
             Icons.Rounded.CheckCircle,
             contentDescription = null,
-            modifier = Modifier.size(72.dp),
+            modifier = Modifier.size(IconSizeMedium),
             tint = MaterialTheme.colorScheme.primary
         )
         Spacer(modifier = Modifier.height(12.dp))
@@ -138,7 +162,7 @@ private fun PreviewContent(
             }
             ConfigDetailRow(
                 "Private Key",
-                config.interfaceConfig.privateKey.take(8) + "…"
+                config.interfaceConfig.privateKey.take(KeyPreviewLength) + "…"
             )
         }
 
@@ -151,7 +175,7 @@ private fun PreviewContent(
                     peer.endpointPort?.let { append(":$it") }
                 })
                 ConfigDetailRow("Allowed IPs", peer.allowedIps.joinToString(", "))
-                ConfigDetailRow("Public Key", peer.publicKey.take(8) + "…")
+                ConfigDetailRow("Public Key", peer.publicKey.take(KeyPreviewLength) + "…")
             }
             Spacer(modifier = Modifier.height(12.dp))
         }
@@ -159,14 +183,14 @@ private fun PreviewContent(
         Spacer(modifier = Modifier.height(12.dp))
         Button(
             onClick = onConfirm,
-            modifier = Modifier.fillMaxWidth().height(56.dp)
+            modifier = Modifier.fillMaxWidth().height(ButtonHeight)
         ) {
             Text("Save Configuration")
         }
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedButton(
             onClick = onChooseAnother,
-            modifier = Modifier.fillMaxWidth().height(56.dp)
+            modifier = Modifier.fillMaxWidth().height(ButtonHeight)
         ) {
             Text("Choose Another File")
         }
@@ -189,7 +213,7 @@ private fun ErrorContent(
         Icon(
             Icons.Rounded.ErrorOutline,
             contentDescription = null,
-            modifier = Modifier.size(120.dp),
+            modifier = Modifier.size(IconSizeLarge),
             tint = MaterialTheme.colorScheme.error
         )
         Spacer(modifier = Modifier.height(24.dp))
@@ -208,7 +232,7 @@ private fun ErrorContent(
         Spacer(modifier = Modifier.height(48.dp))
         Button(
             onClick = onRetry,
-            modifier = Modifier.fillMaxWidth().height(56.dp)
+            modifier = Modifier.fillMaxWidth().height(ButtonHeight)
         ) {
             Text("Try Again")
         }
@@ -307,4 +331,3 @@ fun ConfigImportErrorPreview() {
         )
     }
 }
-

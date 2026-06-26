@@ -3,11 +3,22 @@ package net.mullvad.gotatunandroid.ui.dashboard
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.FormatListBulleted
 import androidx.compose.material.icons.filled.Add
@@ -16,8 +27,33 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.FileUpload
 import androidx.compose.material.icons.rounded.Shield
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +67,51 @@ import net.mullvad.gotatunandroid.domain.model.VpnConfig
 import net.mullvad.gotatunandroid.ui.theme.GotaTunAndroidTheme
 import net.mullvad.gotatunandroid.vpn.TunnelStats
 import net.mullvad.gotatunandroid.vpn.VpnState
+
+private const val BYTES_PER_MB = 1_048_576L
+private const val BYTES_PER_KB = 1_024L
+private const val SECONDS_PER_MINUTE = 60L
+private const val SECONDS_PER_HOUR = 3_600L
+private const val MILLIS_PER_SECOND = 1_000L
+private const val DETAIL_LABEL_WEIGHT = 0.35f
+private const val DETAIL_VALUE_WEIGHT = 0.65f
+
+@Composable
+private fun AddTunnelFab(onAddManual: () -> Unit, onImportFile: () -> Unit) {
+    var showMenu by remember { mutableStateOf(false) }
+    Column(horizontalAlignment = Alignment.End) {
+        if (showMenu) {
+            SmallFloatingActionButton(
+                onClick = {
+                    showMenu = false
+                    onImportFile()
+                },
+                modifier = Modifier.padding(bottom = 8.dp)
+            ) {
+                Icon(Icons.Rounded.FileUpload, contentDescription = "Import File")
+            }
+            SmallFloatingActionButton(
+                onClick = {
+                    showMenu = false
+                    onAddManual()
+                },
+                modifier = Modifier.padding(bottom = 16.dp)
+            ) {
+                Icon(Icons.Rounded.Add, contentDescription = "Add Manual")
+            }
+        }
+        FloatingActionButton(
+            onClick = { showMenu = !showMenu },
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Icon(
+                if (showMenu) Icons.Default.Add else Icons.Rounded.Add,
+                contentDescription = "Add Tunnel"
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,11 +131,13 @@ fun DashboardScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CenterAlignedTopAppBar(
-                windowInsets = WindowInsets.statusBars,
                 title = { Text("GotaTun", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = onManageConfigs) {
-                        Icon(Icons.AutoMirrored.Rounded.FormatListBulleted, contentDescription = "Manage Configurations")
+                        Icon(
+                            Icons.AutoMirrored.Rounded.FormatListBulleted,
+                            contentDescription = "Manage Configurations"
+                        )
                     }
                     IconButton(onClick = onSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -63,37 +146,9 @@ fun DashboardScreen(
             )
         },
         floatingActionButton = {
-            var showMenu by remember { mutableStateOf(false) }
-            Column(horizontalAlignment = Alignment.End) {
-                if (showMenu) {
-                    SmallFloatingActionButton(
-                        onClick = { showMenu = false; onImportFile() },
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    ) {
-                        Icon(Icons.Rounded.FileUpload, contentDescription = "Import File")
-                    }
-                    SmallFloatingActionButton(
-                        onClick = { showMenu = false; onAddManual() },
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    ) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Add Manual")
-                    }
-                }
-                FloatingActionButton(
-                    onClick = { showMenu = !showMenu },
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Icon(
-                        if (showMenu) Icons.Default.Add else Icons.Rounded.Add,
-                        contentDescription = "Add Tunnel"
-                    )
-                }
-            }
+            AddTunnelFab(onAddManual = onAddManual, onImportFile = onImportFile)
         }
     ) { innerPadding ->
-        // When connected, use the resolved config from the state (it has the concrete port).
-        // While connecting we fall back to activeConfig (port may still be null/random).
         val connectedConfig = (state as? VpnState.Connected)?.resolvedConfig
         val displayConfig = connectedConfig ?: activeConfig
 
@@ -103,7 +158,7 @@ fun DashboardScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp)
-                .padding(top = 12.dp, bottom = 96.dp), // bottom pad clears the FAB
+                .padding(top = 12.dp, bottom = 96.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
@@ -113,11 +168,8 @@ fun DashboardScreen(
             )
 
             Spacer(modifier = Modifier.height(20.dp))
-
             StatusCard(state = state)
-
             Spacer(modifier = Modifier.height(12.dp))
-
             ConfigSelectorDropdown(
                 activeConfig = activeConfig,
                 allConfigs = allConfigs,
@@ -159,13 +211,18 @@ fun ConfigSelectorDropdown(
                 .fillMaxWidth()
                 .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
         )
-        ExposedDropdownMenu(
+        DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
             if (allConfigs.isEmpty()) {
                 DropdownMenuItem(
-                    text = { Text("No configurations saved", color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                    text = {
+                        Text(
+                            "No configurations saved",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
                     onClick = { expanded = false }
                 )
             } else {
@@ -229,7 +286,11 @@ fun ConnectionButton(
     )
 
     val iconColor by animateColorAsState(
-        targetValue = if (isConnected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        targetValue = if (isConnected) {
+            MaterialTheme.colorScheme.onPrimary
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
         label = "iconColor"
     )
 
@@ -342,7 +403,10 @@ fun ConnectionDetailsCard(config: VpnConfig) {
                 DetailRow(label = "Server", value = endpointDisplay)
             }
             if (config.interfaceConfig.addresses.isNotEmpty()) {
-                DetailRow(label = "Tunnel IP", value = config.interfaceConfig.addresses.joinToString(", "))
+                DetailRow(
+                    label = "Tunnel IP",
+                    value = config.interfaceConfig.addresses.joinToString(", ")
+                )
             }
             if (config.interfaceConfig.dns.isNotEmpty()) {
                 DetailRow(label = "DNS", value = config.interfaceConfig.dns.joinToString(", "))
@@ -378,42 +442,43 @@ private fun DetailRow(label: String, value: String) {
             text = label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier.weight(0.35f)
+            modifier = Modifier.weight(DETAIL_LABEL_WEIGHT)
         )
         Text(
             text = value,
             style = MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(0.65f)
+            modifier = Modifier.weight(DETAIL_VALUE_WEIGHT)
         )
     }
 }
 
 @Composable
 fun TunnelStatsCard(stats: TunnelStats) {
-    // Tick every second to keep the handshake age live
-    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000L) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis() / MILLIS_PER_SECOND) }
     LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.delay(1_000L)
-            now = System.currentTimeMillis() / 1000L
+            kotlinx.coroutines.delay(MILLIS_PER_SECOND)
+            now = System.currentTimeMillis() / MILLIS_PER_SECOND
         }
     }
 
     val ageSecs = if (stats.lastHandshakeEpochSecs > 0) now - stats.lastHandshakeEpochSecs else -1L
 
     fun fmt(bytes: Long) = when {
-        bytes >= 1_048_576 -> "${"%.1f".format(bytes / 1_048_576.0)} MB"
-        bytes >= 1_024 -> "${"%.0f".format(bytes / 1_024.0)} KB"
+        bytes >= BYTES_PER_MB -> "${"%.1f".format(bytes / BYTES_PER_MB.toDouble())} MB"
+        bytes >= BYTES_PER_KB -> "${"%.0f".format(bytes / BYTES_PER_KB.toDouble())} KB"
         else -> "$bytes B"
     }
 
     fun fmtAge(secs: Long) = when {
         secs < 0 -> "never"
-        secs < 60 -> "${secs}s ago"
-        secs < 3600 -> "${secs / 60}m ${secs % 60}s ago"
-        else -> "${secs / 3600}h ${(secs % 3600) / 60}m ago"
+        secs < SECONDS_PER_MINUTE -> "${secs}s ago"
+        secs < SECONDS_PER_HOUR ->
+            "${secs / SECONDS_PER_MINUTE}m ${secs % SECONDS_PER_MINUTE}s ago"
+        else ->
+            "${secs / SECONDS_PER_HOUR}h ${(secs % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE}m ago"
     }
 
     Card(
@@ -442,7 +507,11 @@ fun TunnelStatsCard(stats: TunnelStats) {
 @Composable
 private fun StatItem(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
         Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
     }
 }

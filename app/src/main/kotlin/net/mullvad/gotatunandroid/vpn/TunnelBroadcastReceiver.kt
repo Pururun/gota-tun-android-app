@@ -21,25 +21,19 @@ class TunnelBroadcastReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val appGraph = createGraphFactory<AppGraph.Factory>().create(context)
-
-        // Gate on the in-app setting
         if (!appGraph.appSettingsRepository.allowRemoteControl.value) return
-
         val tunnelName = intent.getStringExtra(EXTRA_TUNNEL_NAME) ?: return
-
         when (intent.action) {
-            ACTION_TUNNEL_UP -> {
-                // VPN permission must already be granted — we can't show the dialog from a receiver
-                if (VpnService.prepare(context) != null) return
-
-                val config = appGraph.configRepository.allConfigs.value
-                    .firstOrNull { it.name == tunnelName } ?: return
-                appGraph.vpnController.connect(config)
-            }
-            ACTION_TUNNEL_DOWN -> {
-                appGraph.vpnController.disconnect()
-            }
+            ACTION_TUNNEL_UP -> connectTunnel(context, tunnelName, appGraph)
+            ACTION_TUNNEL_DOWN -> appGraph.vpnController.disconnect()
         }
+    }
+
+    private fun connectTunnel(context: Context, tunnelName: String, appGraph: AppGraph) {
+        if (VpnService.prepare(context) != null) return
+        val config = appGraph.configRepository.allConfigs.value
+            .firstOrNull { it.name == tunnelName } ?: return
+        appGraph.vpnController.connect(config)
     }
 
     companion object {
@@ -48,4 +42,3 @@ class TunnelBroadcastReceiver : BroadcastReceiver() {
         const val EXTRA_TUNNEL_NAME = "tunnel_name"
     }
 }
-

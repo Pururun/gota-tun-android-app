@@ -27,6 +27,7 @@ class ConfigImportViewModel(
     private val _navigateBack = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val navigateBack: SharedFlow<Unit> = _navigateBack.asSharedFlow()
 
+    @Suppress("TooGenericExceptionCaught")
     fun processFileContent(content: String, name: String) {
         try {
             val config = WireGuardConfigParser.parse(content, name)
@@ -34,6 +35,10 @@ class ConfigImportViewModel(
         } catch (e: Exception) {
             _state.value = State.Error(e.message ?: "Failed to parse configuration")
         }
+    }
+
+    fun showError(message: String) {
+        _state.value = State.Error(message)
     }
 
     fun confirmImport() {

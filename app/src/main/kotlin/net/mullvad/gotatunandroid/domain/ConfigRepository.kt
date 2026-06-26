@@ -28,7 +28,6 @@ class ConfigRepository(context: Context) {
         loadAll()
     }
 
-    /** Add a new config or update an existing one (matched by id). */
     fun saveConfig(config: VpnConfig) {
         val idx = _configs.indexOfFirst { it.id == config.id }
         if (idx >= 0) _configs[idx] = config else _configs.add(config)
@@ -36,13 +35,11 @@ class ConfigRepository(context: Context) {
         persistConfig(config)
         persistSplitTunneling(config)
         persistIds()
-        // Keep activeConfig in sync if it was the one that was edited
         if (_activeConfig.value?.id == config.id) {
             _activeConfig.value = config
         }
     }
 
-    /** Remove a config by id. If it was active the next available config becomes active. */
     fun deleteConfig(id: String) {
         _configs.removeIf { it.id == id }
         _allConfigs.value = _configs.toList()
@@ -58,14 +55,11 @@ class ConfigRepository(context: Context) {
         }
     }
 
-    /** Make the config with [id] the active one shown on the dashboard. */
     fun setActiveConfig(id: String) {
         val config = _configs.find { it.id == id }
         _activeConfig.value = config
         prefs.edit { putString(KEY_ACTIVE_ID, id) }
     }
-
-    // ── persistence helpers ──────────────────────────────────────────────────
 
     private fun loadAll() {
         val ids = prefs.getString(KEY_IDS, "")
@@ -84,13 +78,16 @@ class ConfigRepository(context: Context) {
     }
 
     private fun loadConfigById(id: String): VpnConfig? {
-        val name = prefs.getString(nameKey(id), null) ?: return null
-        val content = prefs.getString(contentKey(id), null) ?: return null
-        return try {
-            val split = loadSplitTunneling(id)
-            WireGuardConfigParser.parse(content, name).copy(id = id, splitTunneling = split)
-        } catch (e: Exception) {
-            Log.e("ConfigRepository", "Failed to parse config $id", e)
+        val name = prefs.getString(nameKey(id), null)
+        val content = prefs.getString(contentKey(id), null)
+        return if (name != null && content != null) {
+            runCatching {
+                val split = loadSplitTunneling(id)
+                WireGuardConfigParser.parse(content, name).copy(id = id, splitTunneling = split)
+            }.onFailure {
+                Log.e("ConfigRepository", "Failed to parse config $id", it)
+            }.getOrNull()
+        } else {
             null
         }
     }
@@ -104,20 +101,29 @@ class ConfigRepository(context: Context) {
 
     private fun persistSplitTunneling(config: VpnConfig) {
         val st = config.splitTunneling
-        val value = if (st.mode == SplitTunnelingMode.DISABLED) "DISABLED"
-        else "${st.mode.name}:${st.packageNames.joinToString("|")}"
+        val value = if (st.mode == SplitTunnelingMode.DISABLED) {
+            "DISABLED"
+        } else {
+            "${st.mode.name}:${st.packageNames.joinToString("|")}"
+        }
         prefs.edit { putString(splitKey(config.id), value) }
     }
 
     private fun loadSplitTunneling(id: String): SplitTunnelingConfig {
+        val defaultConfig = SplitTunnelingConfig()
         val raw = prefs.getString(splitKey(id), "DISABLED") ?: "DISABLED"
-        if (raw == "DISABLED") return SplitTunnelingConfig()
         val colonIdx = raw.indexOf(':')
-        if (colonIdx < 0) return SplitTunnelingConfig()
-        val mode = runCatching { SplitTunnelingMode.valueOf(raw.substring(0, colonIdx)) }
-            .getOrElse { return SplitTunnelingConfig() }
-        val packages = raw.substring(colonIdx + 1).split("|").filter { it.isNotEmpty() }
-        return SplitTunnelingConfig(mode = mode, packageNames = packages)
+        val mode = if (raw != "DISABLED" && colonIdx >= 0) {
+            runCatching { SplitTunnelingMode.valueOf(raw.substring(0, colonIdx)) }.getOrNull()
+        } else {
+            null
+        }
+        return if (mode != null) {
+            val packages = raw.substring(colonIdx + 1).split("|").filter { it.isNotEmpty() }
+            SplitTunnelingConfig(mode = mode, packageNames = packages)
+        } else {
+            defaultConfig
+        }
     }
 
     private fun persistIds() {

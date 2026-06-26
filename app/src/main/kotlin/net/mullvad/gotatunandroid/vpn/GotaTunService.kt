@@ -11,6 +11,7 @@ import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,15 +35,14 @@ import net.mullvad.gotatunandroid.ffi.stopTunnel as stopTunnelRust
 
 data class TunnelStats(val lastHandshakeEpochSecs: Long, val rxBytes: Long, val txBytes: Long)
 
+@Suppress("TooManyFunctions")
 class GotaTunService : VpnService() {
 
   private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
   private var tunnelInterface: ParcelFileDescriptor? = null
   private var statsJob: Job? = null
-  /** Serialises all start/stop operations so they never run concurrently. */
   private val tunnelMutex = Mutex()
 
-  /** SocketProtector implementation — delegates to VpnService.protect(). */
   private val socketProtector =
       object : SocketProtector {
         override fun protect(fd: Int): Boolean = this@GotaTunService.protect(fd)
@@ -55,8 +55,13 @@ class GotaTunService : VpnService() {
     const val EXTRA_SPLIT_TUNNELING = "extra_split_tunneling"
     private const val CHANNEL_ID = "vpn_service_channel"
     private const val NOTIFICATION_ID = 1
-    /** How long to poll for the first WireGuard handshake before giving up and marking Connected. */
     private const val HANDSHAKE_TIMEOUT_MS = 30_000L
+    private const val DEFAULT_PREFIX_LENGTH = 32
+    private val STATS_POLL_INTERVAL = 2.seconds
+    private val HANDSHAKE_POLL_INTERVAL = 1.seconds
+    private const val STATS_PARTS_COUNT = 3
+    private const val BYTES_PER_MB = 1_048_576L
+    private const val BYTES_PER_KB = 1_024L
 
     private val _serviceState = MutableStateFlow<VpnState>(VpnState.Idle)
     val serviceState = _serviceState.asStateFlow()
@@ -67,7 +72,6 @@ class GotaTunService : VpnService() {
 
   override fun onCreate() {
     super.onCreate()
-    // Reset potentially stale state from a previous service instance (START_STICKY restart).
     _serviceState.value = VpnState.Idle
     _tunnelStats.value = null
     createNotificationChannel()
@@ -92,13 +96,12 @@ class GotaTunService : VpnService() {
     return START_STICKY
   }
 
+  @Suppress("TooGenericExceptionCaught")
   private fun startTunnel(config: String, splitExtra: String) {
     _serviceState.value = VpnState.Connecting
     serviceScope.launch(Dispatchers.IO) {
       tunnelMutex.withLock {
         try {
-          // Stop any previously running tunnel before starting a new one.
-          // This is the key fix for config-switch / reconnect failures.
           if (_serviceState.value !is VpnState.Idle) {
             statsJob?.cancel()
             statsJob = null
@@ -110,55 +113,15 @@ class GotaTunService : VpnService() {
 
           val vpnConfig = WireGuardConfigParser.parse(config)
           val builder = Builder()
-
-        vpnConfig.interfaceConfig.addresses.forEach { cidr ->
-          val parts = cidr.split("/")
-          builder.addAddress(parts[0], parts.getOrNull(1)?.toIntOrNull() ?: 32)
-        }
-        vpnConfig.peers.forEach { peer ->
-          peer.allowedIps.forEach { cidr ->
-            val parts = cidr.split("/")
-            builder.addRoute(parts[0], parts.getOrNull(1)?.toIntOrNull() ?: 32)
-          }
-        }
-        vpnConfig.interfaceConfig.dns.forEach { builder.addDnsServer(it) }
-        vpnConfig.interfaceConfig.mtu?.let { builder.setMtu(it) }
-
-        // Apply split tunneling
-        var splitTunneling = SplitTunnelingConfig(SplitTunnelingMode.DISABLED, emptyList())
-
-        if (splitExtra != "DISABLED") {
-          val colon = splitExtra.indexOf(':')
-          if (colon > 0) {
-            val mode = splitExtra.substring(0, colon)
-            val packages = splitExtra.substring(colon + 1).split("|").filter { it.isNotEmpty() }
-            packages.forEach { pkg ->
-              runCatching {
-                if (mode == "EXCLUDE") builder.addDisallowedApplication(pkg)
-                else builder.addAllowedApplication(pkg)
-              }
-            }
-            splitTunneling =
-                SplitTunnelingConfig(
-                    if (mode == "EXCLUDE") SplitTunnelingMode.EXCLUDE
-                    else SplitTunnelingMode.INCLUDE_ONLY,
-                    packageNames = packages,
-                )
-          }
-        }
-
-        builder.setSession("GotaTun")
+          applyNetworkConfig(builder, vpnConfig)
+          val splitTunneling = applySplitTunneling(builder, splitExtra)
           tunnelInterface = builder.establish()
 
           tunnelInterface?.let { pfd ->
             val fd = pfd.detachFd()
-            // After detachFd() the PFD no longer owns the fd; clear the field so
-            // stopTunnel() doesn't try to close an already-detached descriptor.
             tunnelInterface = null
             val result = startTunnel(fd, config, socketProtector)
             if (result) {
-              // Native tunnel is up. Stay in Connecting and wait for the first
-              // WireGuard handshake before declaring Connected.
               startHandshakeWait(vpnConfig.copy(splitTunneling = splitTunneling))
             } else {
               _serviceState.value = VpnState.Error("Native tunnel start failed")
@@ -181,6 +144,49 @@ class GotaTunService : VpnService() {
     }
   }
 
+  private fun applyNetworkConfig(builder: Builder, vpnConfig: VpnConfig) {
+    vpnConfig.interfaceConfig.addresses.forEach { cidr ->
+      val parts = cidr.split("/")
+      builder.addAddress(
+          parts[0],
+          parts.getOrNull(1)?.toIntOrNull() ?: DEFAULT_PREFIX_LENGTH,
+      )
+    }
+    vpnConfig.peers.forEach { peer ->
+      peer.allowedIps.forEach { cidr ->
+        val parts = cidr.split("/")
+        builder.addRoute(
+            parts[0],
+            parts.getOrNull(1)?.toIntOrNull() ?: DEFAULT_PREFIX_LENGTH,
+        )
+      }
+    }
+    vpnConfig.interfaceConfig.dns.forEach { builder.addDnsServer(it) }
+    vpnConfig.interfaceConfig.mtu?.let { builder.setMtu(it) }
+    builder.setSession("GotaTun")
+  }
+
+  private fun applySplitTunneling(builder: Builder, splitExtra: String): SplitTunnelingConfig {
+    val disabledConfig = SplitTunnelingConfig(SplitTunnelingMode.DISABLED, emptyList())
+    val colon = splitExtra.indexOf(':')
+    val mode = if (splitExtra != "DISABLED" && colon > 0) splitExtra.substring(0, colon) else null
+    return if (mode != null) {
+      val packages = splitExtra.substring(colon + 1).split("|").filter { it.isNotEmpty() }
+      packages.forEach { pkg ->
+        runCatching {
+          if (mode == "EXCLUDE") builder.addDisallowedApplication(pkg)
+          else builder.addAllowedApplication(pkg)
+        }
+      }
+      SplitTunnelingConfig(
+          if (mode == "EXCLUDE") SplitTunnelingMode.EXCLUDE else SplitTunnelingMode.INCLUDE_ONLY,
+          packageNames = packages,
+      )
+    } else {
+      disabledConfig
+    }
+  }
+
   private fun startStatsPolling(configName: String) {
     statsJob?.cancel()
     statsJob =
@@ -188,53 +194,47 @@ class GotaTunService : VpnService() {
           var prevRx = 0L
           var prevTx = 0L
           while (true) {
-            delay(2_000L)
-            val raw = runCatching { getStats() }.getOrNull() ?: continue
-            if (raw.isBlank()) continue
-            val parts = raw.split("|")
-            if (parts.size != 3) continue
-            val handshake = parts[0].toLongOrNull() ?: 0L
-            val rx = parts[1].toLongOrNull() ?: 0L
-            val tx = parts[2].toLongOrNull() ?: 0L
-            _tunnelStats.value = TunnelStats(handshake, rx, tx)
-
-            val rxRate = ((rx - prevRx) / 2).coerceAtLeast(0)
-            val txRate = ((tx - prevTx) / 2).coerceAtLeast(0)
-            prevRx = rx
-            prevTx = tx
-            updateNotification(
-                content = "↑ ${formatBytes(txRate)}/s  ↓ ${formatBytes(rxRate)}/s",
-                connected = true,
-                configName = configName,
-            )
+            delay(STATS_POLL_INTERVAL)
+            val raw = runCatching { getStats() }.getOrNull()
+            if (!raw.isNullOrBlank()) {
+              val parts = raw.split("|")
+              if (parts.size == STATS_PARTS_COUNT) {
+                val handshake = parts[0].toLongOrNull() ?: 0L
+                val rx = parts[1].toLongOrNull() ?: 0L
+                val tx = parts[2].toLongOrNull() ?: 0L
+                _tunnelStats.value = TunnelStats(handshake, rx, tx)
+                val pollIntervalSecs = STATS_POLL_INTERVAL.inWholeSeconds
+                val rxRate = ((rx - prevRx) / pollIntervalSecs).coerceAtLeast(0)
+                val txRate = ((tx - prevTx) / pollIntervalSecs).coerceAtLeast(0)
+                prevRx = rx
+                prevTx = tx
+                updateNotification(
+                    content = "↑ ${formatBytes(txRate)}/s  ↓ ${formatBytes(rxRate)}/s",
+                    connected = true,
+                    configName = configName,
+                )
+              }
+            }
           }
         }
   }
 
-  /**
-   * Polls getStats() every second until the first WireGuard handshake is confirmed
-   * (lastHandshakeEpochSecs > 0), then calls [transitionToConnected].
-   *
-   * The job is stored in [statsJob] so [stopTunnel] can cancel it immediately.
-   * If no handshake arrives within [HANDSHAKE_TIMEOUT_MS] the tunnel is still
-   * marked Connected — the handshake will occur on first traffic.
-   */
   private fun startHandshakeWait(vpnConfig: VpnConfig) {
     statsJob?.cancel()
     statsJob =
         serviceScope.launch(Dispatchers.IO) {
           val deadline = System.currentTimeMillis() + HANDSHAKE_TIMEOUT_MS
           while (System.currentTimeMillis() < deadline) {
-            delay(1_000L)
-            val raw = runCatching { getStats() }.getOrNull() ?: continue
-            if (raw.isBlank()) continue
-            val parts = raw.split("|")
-            if (parts.size == 3 && (parts[0].toLongOrNull() ?: 0L) > 0L) {
-              transitionToConnected(vpnConfig)
-              return@launch
+            delay(HANDSHAKE_POLL_INTERVAL)
+            val raw = runCatching { getStats() }.getOrNull()
+            if (raw != null && raw.isNotBlank()) {
+              val parts = raw.split("|")
+              if (parts.size == STATS_PARTS_COUNT && (parts[0].toLongOrNull() ?: 0L) > 0L) {
+                transitionToConnected(vpnConfig)
+                return@launch
+              }
             }
           }
-          // Timeout reached with no handshake yet — tunnel is up, proceed as Connected.
           if (_serviceState.value is VpnState.Connecting) {
             transitionToConnected(vpnConfig)
           }
@@ -247,6 +247,7 @@ class GotaTunService : VpnService() {
     startStatsPolling(vpnConfig.name)
   }
 
+  @Suppress("TooGenericExceptionCaught")
   private fun stopTunnel() {
     statsJob?.cancel()
     statsJob = null
@@ -273,8 +274,8 @@ class GotaTunService : VpnService() {
 
   private fun formatBytes(bytes: Long): String =
       when {
-        bytes >= 1_048_576 -> "${"%.1f".format(bytes / 1_048_576.0)} MB"
-        bytes >= 1_024 -> "${"%.0f".format(bytes / 1_024.0)} KB"
+        bytes >= BYTES_PER_MB -> "${"%.1f".format(bytes / BYTES_PER_MB.toDouble())} MB"
+        bytes >= BYTES_PER_KB -> "${"%.0f".format(bytes / BYTES_PER_KB.toDouble())} KB"
         else -> "$bytes B"
       }
 
