@@ -1,6 +1,10 @@
 package net.mullvad.gotatunandroid.ui.config
 
 import androidx.lifecycle.ViewModel
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.ContributesIntoMap
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metrox.viewmodel.ViewModelKey
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -11,6 +15,9 @@ import net.mullvad.gotatunandroid.domain.ConfigRepository
 import net.mullvad.gotatunandroid.domain.WireGuardConfigParser
 import net.mullvad.gotatunandroid.domain.model.VpnConfig
 
+@Inject
+@ViewModelKey
+@ContributesIntoMap(AppScope::class)
 class ConfigImportViewModel(
     private val configRepository: ConfigRepository
 ) : ViewModel() {

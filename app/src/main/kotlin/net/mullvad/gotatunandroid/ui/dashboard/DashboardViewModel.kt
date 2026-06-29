@@ -2,6 +2,10 @@ package net.mullvad.gotatunandroid.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.ContributesIntoMap
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metrox.viewmodel.ViewModelKey
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -26,6 +30,9 @@ sealed interface DashboardUiState {
   ) : DashboardUiState
 }
 
+@Inject
+@ViewModelKey
+@ContributesIntoMap(AppScope::class)
 class DashboardViewModel(
     vpnController: VpnController,
     configRepository: ConfigRepository,

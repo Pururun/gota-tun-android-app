@@ -49,6 +49,8 @@ androidx-compose-material-icons-extended = { group = "androidx.compose.material"
 accompanist-permissions = { group = "com.google.accompanist", name = "accompanist-permissions", version.ref = "accompanistPermissions" }
 androidx-runner = { group = "androidx.test", name = "runner", version.ref = "runner" }
 metro-runtime = { group = "dev.zacsweers.metro", name = "runtime", version.ref = "metro" }
+metro-viewmodel = { group = "dev.zacsweers.metro", name = "metrox-viewmodel", version.ref = "metro" }
+metro-viewmodel-compose = { group = "dev.zacsweers.metro", name = "metrox-viewmodel-compose", version.ref = "metro" }
 jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
 
 [plugins]
@@ -57,6 +59,6 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "googleDevtoolsKsp" }
 metro = { id = "dev.zacsweers.metro", version.ref = "metro" }
-kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kotlin-parcelize = { id = "org.jetbrains.kotlin.plugin.parcelize", version.ref = "kotlin" }
 rust-android = { id = "net.mullvad.rust-android", version.ref = "rust-android" }
 detekt = { id = "dev.detekt", version.ref = "detekt" }

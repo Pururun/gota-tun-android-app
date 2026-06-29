@@ -5,7 +5,7 @@ plugins {
   alias(libs.plugins.kotlin.compose)
   alias(libs.plugins.google.devtools.ksp)
   alias(libs.plugins.metro)
-  alias(libs.plugins.kotlin.serialization)
+  alias(libs.plugins.kotlin.parcelize)
   alias(libs.plugins.rust.android)
 }
 
@@ -118,6 +118,8 @@ afterEvaluate {
 dependencies {
   implementation(libs.javax.inject)
   implementation(libs.metro.runtime)
+  implementation(libs.metro.viewmodel)
+    implementation(libs.metro.viewmodel.compose)
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)

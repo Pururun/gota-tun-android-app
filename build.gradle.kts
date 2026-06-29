@@ -7,6 +7,7 @@ plugins {
     alias(libs.plugins.metro) apply false
     alias(libs.plugins.rust.android) apply false
     alias(libs.plugins.detekt) apply true
+    alias(libs.plugins.kotlin.parcelize) apply false
 }
 
 detekt {

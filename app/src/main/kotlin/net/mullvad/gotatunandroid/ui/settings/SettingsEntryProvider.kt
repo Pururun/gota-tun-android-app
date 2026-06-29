@@ -5,16 +5,17 @@ import androidx.compose.runtime.getValue
 import androidx.navigation3.runtime.EntryProviderScope
 import net.mullvad.gotatunandroid.domain.AppSettingsRepository
 import net.mullvad.gotatunandroid.ui.navigation.Destination
+import net.mullvad.gotatunandroid.ui.navigation.Navigator
 
 fun EntryProviderScope<Destination>.settingsEntry(
     appSettingsRepository: AppSettingsRepository,
-    onBack: () -> Unit,
+    navigator: Navigator,
 ) {
-  entry<Destination.Settings> {
+  entry<Settings> {
     val allowRemoteControl by appSettingsRepository.allowRemoteControl.collectAsState()
 
     SettingsScreen(
-        onBack = onBack,
+        onBack = navigator::goBack,
         allowRemoteControl = allowRemoteControl,
         onToggleRemoteControl = { appSettingsRepository.setAllowRemoteControl(it) },
     )

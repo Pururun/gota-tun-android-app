@@ -10,6 +10,16 @@ import android.graphics.drawable.Drawable
 import androidx.core.graphics.createBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.CreationExtras
+import dev.zacsweers.metro.AppScope
+import dev.zacsweers.metro.Assisted
+import dev.zacsweers.metro.AssistedFactory
+import dev.zacsweers.metro.AssistedInject
+import dev.zacsweers.metro.ContributesIntoMap
+import dev.zacsweers.metro.Inject
+import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactory
+import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactoryKey
+import dev.zacsweers.metrox.viewmodel.ViewModelKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,8 +47,10 @@ data class SplitTunnelingUiState(
     val isLoading: Boolean = true,
 )
 
+@AssistedInject
+@ViewModelKey
 class SplitTunnelingViewModel(
-    private val configId: String,
+    @Assisted private val configId: String,
     private val configRepository: ConfigRepository,
     private val vpnController: VpnController,
     context: Context,
@@ -122,9 +134,9 @@ class SplitTunnelingViewModel(
         )
     configRepository.saveConfig(updated)
     if ((vpnController.state.value as? VpnState.Connected)?.resolvedConfig?.id == configId) {
-        // Reconnect to apply the new split-tunneling rules immediately.
-        // The service handles stopping the old tunnel before starting the new one.
-        vpnController.connect(updated)
+      // Reconnect to apply the new split-tunneling rules immediately.
+      // The service handles stopping the old tunnel before starting the new one.
+      vpnController.connect(updated)
     }
   }
 
@@ -135,5 +147,20 @@ class SplitTunnelingViewModel(
     setBounds(0, 0, canvas.width, canvas.height)
     draw(canvas)
     return bmp
+  }
+
+  @AssistedFactory
+  @ViewModelAssistedFactoryKey(SplitTunnelingViewModel::class)
+  @ContributesIntoMap(AppScope::class)
+  fun interface Factory : ViewModelAssistedFactory {
+    override fun create(extras: CreationExtras): SplitTunnelingViewModel {
+      return create(extras[KEY_ID] ?: throw IllegalArgumentException("Missing config ID"))
+    }
+
+    fun create(@Assisted configId: String): SplitTunnelingViewModel
+  }
+
+  companion object {
+    val KEY_ID: CreationExtras.Key<String> = CreationExtras.Key()
   }
 }

@@ -5,21 +5,22 @@ import androidx.compose.runtime.getValue
 import androidx.navigation3.runtime.EntryProviderScope
 import net.mullvad.gotatunandroid.domain.ConfigRepository
 import net.mullvad.gotatunandroid.ui.navigation.Destination
+import net.mullvad.gotatunandroid.ui.navigation.Navigator
 import net.mullvad.gotatunandroid.vpn.VpnController
 import net.mullvad.gotatunandroid.vpn.VpnState
 
 fun EntryProviderScope<Destination>.manualEntry(
     configRepository: ConfigRepository,
     vpnController: VpnController,
-    onBack: () -> Unit,
+    navigator: Navigator,
 ) {
-  entry<Destination.ManualEntry> { destination ->
+  entry<ManualEntry> { destination ->
     val allConfigs by configRepository.allConfigs.collectAsState()
     val initialConfig = destination.editConfigId?.let { id -> allConfigs.find { it.id == id } }
 
     ManualEntryScreen(
         initialConfig = initialConfig,
-        onBack = onBack,
+        onBack = navigator::goBack,
         onSave = { config ->
           configRepository.saveConfig(config)
           if (destination.editConfigId == null) {
@@ -32,7 +33,7 @@ fun EntryProviderScope<Destination>.manualEntry(
             // Edited the currently-connected config: reconnect to apply changes
             vpnController.connect(config)
           }
-          onBack()
+          navigator.goBack()
         },
     )
   }

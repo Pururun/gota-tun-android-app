@@ -9,20 +9,20 @@ import androidx.navigation3.runtime.EntryProviderScope
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
-import net.mullvad.gotatunandroid.domain.ConfigRepository
-import net.mullvad.gotatunandroid.domain.ConnectController
+import dev.zacsweers.metrox.viewmodel.metroViewModel
+import net.mullvad.gotatunandroid.ui.config.ConfigImport
+import net.mullvad.gotatunandroid.ui.configlist.ConfigList
+import net.mullvad.gotatunandroid.ui.manual.ManualEntry
 import net.mullvad.gotatunandroid.ui.navigation.Destination
-import net.mullvad.gotatunandroid.vpn.VpnController
+import net.mullvad.gotatunandroid.ui.navigation.Navigator
+import net.mullvad.gotatunandroid.ui.settings.Settings
 
 @OptIn(ExperimentalPermissionsApi::class)
 fun EntryProviderScope<Destination>.dashboardEntry(
-    vpnController: VpnController,
-    configRepository: ConfigRepository,
-    connectController: ConnectController,
-    navigateTo: (Destination) -> Unit,
+    navigator: Navigator,
     requestVpnPermissionThenConnect: () -> Unit,
 ) {
-  entry<Destination.Dashboard> {
+  entry<Dashboard> {
     // Request POST_NOTIFICATIONS permission on Android 13+ so the
     // foreground-service notification is visible to the user.
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -33,21 +33,19 @@ fun EntryProviderScope<Destination>.dashboardEntry(
         }
       }
     }
-    val viewModel: DashboardViewModel = viewModel {
-      DashboardViewModel(vpnController, configRepository, connectController)
-    }
+    val viewModel: DashboardViewModel = metroViewModel()
     val uiState by viewModel.uiState.collectAsState()
 
     DashboardScreen(
         uiState = uiState,
         onToggle = { requestVpnPermissionThenConnect() },
         onSelectConfig = viewModel::selectConfig,
-        onAddManual = { navigateTo(Destination.ManualEntry()) },
-        onImportFile = { navigateTo(Destination.ConfigImport) },
+        onAddManual = { navigator.navigate(ManualEntry()) },
+        onImportFile = { navigator.navigate(ConfigImport) },
         onManageConfigs = {
-          navigateTo(Destination.ConfigList)
+          navigator.navigate(ConfigList)
         },
-        onSettings = { navigateTo(Destination.Settings) },
+        onSettings = { navigator.navigate(Settings) },
     )
   }
 }
