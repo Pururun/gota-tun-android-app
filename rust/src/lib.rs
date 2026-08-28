@@ -18,7 +18,6 @@ use gotatun::udp::socket::{UdpSocket, UdpSocketFactory};
 use gotatun::udp::{UdpTransportFactory, UdpTransportFactoryParams};
 use gotatun::x25519::{PublicKey, StaticSecret};
 use ipnetwork::IpNetwork;
-use nix::libc;
 use tokio::io::unix::AsyncFd;
 
 // ======== Logging ========
@@ -60,10 +59,9 @@ struct AndroidTunDevice {
 }
 
 impl AndroidTunDevice {
-    fn new(raw_fd: RawFd, mtu: u16) -> io::Result<Self> {
-        let owned = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+    fn new(fd: OwnedFd, mtu: u16) -> io::Result<Self> {
         Ok(Self {
-            fd: Arc::new(AsyncFd::new(owned)?),
+            fd: Arc::new(AsyncFd::new(fd)?),
             mtu,
         })
     }
@@ -313,22 +311,42 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
 /// `config` is the WireGuard config in wg-quick format.
 /// `protector` is a Kotlin callback that calls VpnService.protect() on each UDP socket.
 /// Returns true on success.
+///
+/// # Safety
+/// - raw_fd has to uphold the safety requirements of [OwnedFd::from_raw_fd].
 #[uniffi::export]
-fn start_tunnel(fd: i32, config: String, protector: Box<dyn SocketProtector>) -> bool {
+fn start_tunnel(raw_fd: RawFd, config: String, protector: Box<dyn SocketProtector>) -> bool {
+    // SAFETY: raw_fw upholds the safety requirements of OwnedFd::from_raw_fd.
+    let fd = unsafe { OwnedFd::from_raw_fd(raw_fd) };
+    start_tunnel_inner(fd, config, protector).is_ok()
+}
+
+/// Start a WireGuard tunnel.
+/// `fd` is the TUN file descriptor handed over by Android.
+/// `config` is the WireGuard config in wg-quick format.
+/// `protector` is a Kotlin callback that calls VpnService.protect() on each UDP socket.
+fn start_tunnel_inner(
+    fd: OwnedFd,
+    config: String,
+    protector: Box<dyn SocketProtector>,
+) -> io::Result<bool> {
     init_logging();
 
     let parsed = match parse_config(&config) {
         Ok(p) => p,
         Err(e) => {
             log::error!("start_tunnel_impl: failed to parse config: {e}");
-            return false;
+            return Ok(false);
         }
     };
 
-    unsafe {
-        let flags = libc::fcntl(fd, libc::F_GETFL);
-        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-    }
+    let flags = nix::fcntl::fcntl(&fd, nix::fcntl::F_GETFL)?;
+    let _ = nix::fcntl::fcntl(
+        &fd,
+        nix::fcntl::F_SETFL(
+            nix::fcntl::OFlag::O_NONBLOCK.union(nix::fcntl::OFlag::from_bits_retain(flags)),
+        ),
+    )?;
 
     // Promote to Arc so it can be shared with the async UDP factory
     let protector: Arc<dyn SocketProtector> = Arc::from(protector);
@@ -355,7 +373,7 @@ fn start_tunnel(fd: i32, config: String, protector: Box<dyn SocketProtector>) ->
             let tun_device = match AndroidTunDevice::new(fd, mtu) {
                 Ok(d) => d,
                 Err(e) => {
-                    log::error!("tunnel: failed to wrap TUN fd {fd}: {e}");
+                    log::error!("tunnel: failed to wrap TUN fd: {e}");
                     return;
                 }
             };
@@ -410,7 +428,7 @@ fn start_tunnel(fd: i32, config: String, protector: Box<dyn SocketProtector>) ->
                 Err(e) => {
                     log::error!("Failed to build WireGuard device: {e}");
                 }
-            }
+            };
         });
     });
 
@@ -420,7 +438,7 @@ fn start_tunnel(fd: i32, config: String, protector: Box<dyn SocketProtector>) ->
         stats,
     });
 
-    true
+    Ok(true)
 }
 
 /// Stop the active WireGuard tunnel. Returns true if a tunnel was running.
