@@ -4,17 +4,21 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "gotatun_jni"
 crate-type = ["cdylib"]
+name = "gotatun_jni"
+
+[[bin]]
+name = "bindgen"
+path = "bindgen.rs"
 
 [dependencies]
-gotatun = { version = "0.9.1", features = ["device"] }
-tokio = { version = "1", features = ["full"] }
+android_logger = "0.14"
 base64 = "0.22"
+gotatun = { version = "0.9.1", features = ["device"] }
 ipnetwork = "0.21"
 libc = "0.2"
 log = "0.4"
-android_logger = "0.14"
+tokio = { version = "1", features = ["full"] }
 uniffi = { version = "0.32.0", features = ["cli"] }
 
 [build-dependencies]
@@ -35,8 +39,3 @@ strip = "debuginfo"
 opt-level = 3
 strip = true
 lto = true
-
-[[bin]]
-name = "bindgen"
-path = "bindgen.rs"
-
