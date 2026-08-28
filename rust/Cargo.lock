@@ -1034,8 +1034,8 @@ dependencies = [
  "base64",
  "gotatun",
  "ipnetwork",
- "libc",
  "log",
+ "nix",
  "tokio",
  "uniffi",
 ]
