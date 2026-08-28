@@ -1,8 +1,7 @@
 #![allow(non_snake_case, clippy::missing_safety_doc)]
 
 use std::io;
-use std::net::{Ipv4Addr, SocketAddr};
-use std::os::fd::AsFd;
+use std::net::SocketAddr;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -158,7 +157,7 @@ impl UdpTransportFactory for ProtectedUdpFactory {
             let (send, _) = result.clone();
             let send_raw = send.socket().as_raw_fd();
             if !self.protector.protect(send_raw) {
-                return Err(io::Error::new(io::ErrorKind::Other, "VpnService.protect() failed for v4 socket"));
+                return Err(io::Error::other("VpnService.protect() failed for v4 socket"));
             }
             /*if !self.protector.protect(v6_raw) {
                 return Err(io::Error::new(io::ErrorKind::Other, "VpnService.protect() failed for v6 socket"));
@@ -247,11 +246,10 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
                 if key.eq_ignore_ascii_case("PrivateKey") {
                     let bytes = parse_key(value)?;
                     private_key = Some(StaticSecret::from(bytes));
-                } else if key.eq_ignore_ascii_case("MTU") {
-                    if let Ok(m) = value.parse::<u16>() {
+                } else if key.eq_ignore_ascii_case("MTU")
+                    && let Ok(m) = value.parse::<u16>() {
                         mtu = m;
                     }
-                }
             } else {
                 if key.eq_ignore_ascii_case("PublicKey") {
                     let bytes = parse_key(value)?;
