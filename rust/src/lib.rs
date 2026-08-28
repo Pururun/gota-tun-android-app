@@ -7,9 +7,9 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use base64::{prelude::BASE64_STANDARD, Engine as _};
-use gotatun::device::uapi::command::{Get, Request, Response};
+use base64::{Engine as _, prelude::BASE64_STANDARD};
 use gotatun::device::uapi::UapiServer;
+use gotatun::device::uapi::command::{Get, Request, Response};
 use gotatun::device::{DeviceBuilder, Peer};
 use gotatun::packet::{Ip, Packet, PacketBufPool};
 use gotatun::tun::{IpRecv, IpSend, MtuWatcher};
@@ -81,7 +81,11 @@ impl IpSend for AndroidTunDevice {
                         bytes.len(),
                     )
                 };
-                if n < 0 { Err(io::Error::last_os_error()) } else { Ok(n as usize) }
+                if n < 0 {
+                    Err(io::Error::last_os_error())
+                } else {
+                    Ok(n as usize)
+                }
             }) {
                 Ok(Ok(_)) => return Ok(()),
                 Ok(Err(e)) => return Err(e),
@@ -110,7 +114,11 @@ impl IpRecv for AndroidTunDevice {
                             mtu,
                         )
                     };
-                    if n < 0 { Err(io::Error::last_os_error()) } else { Ok(n as usize) }
+                    if n < 0 {
+                        Err(io::Error::last_os_error())
+                    } else {
+                        Ok(n as usize)
+                    }
                 }) {
                     Ok(Ok(n)) => n,
                     Ok(Err(e)) => return Err(e),
@@ -120,12 +128,17 @@ impl IpRecv for AndroidTunDevice {
             pkt.truncate(n);
             match pkt.try_into_ip() {
                 Ok(ip_pkt) => return Ok(std::iter::once(ip_pkt)),
-                Err(e) => { log::debug!("Skipping non-IP packet from TUN: {e}"); continue; }
+                Err(e) => {
+                    log::debug!("Skipping non-IP packet from TUN: {e}");
+                    continue;
+                }
             }
         }
     }
 
-    fn mtu(&self) -> MtuWatcher { MtuWatcher::new(self.mtu) }
+    fn mtu(&self) -> MtuWatcher {
+        MtuWatcher::new(self.mtu)
+    }
 }
 
 // ======== Socket protection callback ========
@@ -157,7 +170,9 @@ impl UdpTransportFactory for ProtectedUdpFactory {
             let (send, _) = result.clone();
             let send_raw = send.socket().as_raw_fd();
             if !self.protector.protect(send_raw) {
-                return Err(io::Error::other("VpnService.protect() failed for v4 socket"));
+                return Err(io::Error::other(
+                    "VpnService.protect() failed for v4 socket",
+                ));
             }
             /*if !self.protector.protect(v6_raw) {
                 return Err(io::Error::new(io::ErrorKind::Other, "VpnService.protect() failed for v6 socket"));
@@ -207,7 +222,9 @@ fn flush_peer(
 ) {
     if let Some(pk) = pub_key {
         let mut peer = Peer::new(pk);
-        if let Some(ep) = endpoint { peer = peer.with_endpoint(ep); }
+        if let Some(ep) = endpoint {
+            peer = peer.with_endpoint(ep);
+        }
         peer = peer.with_allowed_ips(allowed_ips);
         peers.push(peer);
     }
@@ -224,17 +241,29 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
 
     for line in config_str.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         if line.eq_ignore_ascii_case("[Interface]") {
             if in_peer {
-                flush_peer(pub_key.take(), endpoint.take(), std::mem::take(&mut allowed_ips), &mut peers);
+                flush_peer(
+                    pub_key.take(),
+                    endpoint.take(),
+                    std::mem::take(&mut allowed_ips),
+                    &mut peers,
+                );
                 in_peer = false;
             }
             continue;
         }
         if line.eq_ignore_ascii_case("[Peer]") {
             if in_peer {
-                flush_peer(pub_key.take(), endpoint.take(), std::mem::take(&mut allowed_ips), &mut peers);
+                flush_peer(
+                    pub_key.take(),
+                    endpoint.take(),
+                    std::mem::take(&mut allowed_ips),
+                    &mut peers,
+                );
             }
             in_peer = true;
             continue;
@@ -247,9 +276,10 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
                     let bytes = parse_key(value)?;
                     private_key = Some(StaticSecret::from(bytes));
                 } else if key.eq_ignore_ascii_case("MTU")
-                    && let Ok(m) = value.parse::<u16>() {
-                        mtu = m;
-                    }
+                    && let Ok(m) = value.parse::<u16>()
+                {
+                    mtu = m;
+                }
             } else {
                 if key.eq_ignore_ascii_case("PublicKey") {
                     let bytes = parse_key(value)?;
@@ -261,7 +291,8 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
                         a
                     } else {
                         use std::net::ToSocketAddrs;
-                        value.to_socket_addrs()
+                        value
+                            .to_socket_addrs()
                             .map_err(|e| format!("Cannot resolve endpoint '{value}': {e}"))?
                             .next()
                             .ok_or_else(|| format!("No addresses found for endpoint '{value}'"))?
@@ -279,10 +310,19 @@ fn parse_config(config_str: &str) -> Result<ParsedConfig, String> {
         }
     }
     if in_peer {
-        flush_peer(pub_key.take(), endpoint.take(), std::mem::take(&mut allowed_ips), &mut peers);
+        flush_peer(
+            pub_key.take(),
+            endpoint.take(),
+            std::mem::take(&mut allowed_ips),
+            &mut peers,
+        );
     }
     let private_key = private_key.ok_or("Missing PrivateKey in [Interface] section")?;
-    Ok(ParsedConfig { private_key, peers, mtu })
+    Ok(ParsedConfig {
+        private_key,
+        peers,
+        mtu,
+    })
 }
 
 // ======== uniffi exports ========
@@ -298,7 +338,10 @@ fn start_tunnel(fd: i32, config: String, protector: Box<dyn SocketProtector>) ->
 
     let parsed = match parse_config(&config) {
         Ok(p) => p,
-        Err(e) => { log::error!("start_tunnel_impl: failed to parse config: {e}"); return false; }
+        Err(e) => {
+            log::error!("start_tunnel_impl: failed to parse config: {e}");
+            return false;
+        }
     };
 
     unsafe {
@@ -321,13 +364,19 @@ fn start_tunnel(fd: i32, config: String, protector: Box<dyn SocketProtector>) ->
     let thread = std::thread::spawn(move || {
         let rt = match tokio::runtime::Runtime::new() {
             Ok(rt) => rt,
-            Err(e) => { log::error!("tunnel thread: failed to create Tokio runtime: {e}"); return; }
+            Err(e) => {
+                log::error!("tunnel thread: failed to create Tokio runtime: {e}");
+                return;
+            }
         };
 
         rt.block_on(async move {
             let tun_device = match AndroidTunDevice::new(fd, mtu) {
                 Ok(d) => d,
-                Err(e) => { log::error!("tunnel: failed to wrap TUN fd {fd}: {e}"); return; }
+                Err(e) => {
+                    log::error!("tunnel: failed to wrap TUN fd {fd}: {e}");
+                    return;
+                }
             };
 
             let mut builder = DeviceBuilder::new()
@@ -358,8 +407,12 @@ fn start_tunnel(fd: i32, config: String, protector: Box<dyn SocketProtector>) ->
                                     if let Some(secs) = peer.last_handshake_time_sec {
                                         last_handshake = last_handshake.max(secs as i64);
                                     }
-                                    if let Some(rx) = peer.rx_bytes { total_rx += rx; }
-                                    if let Some(tx) = peer.tx_bytes { total_tx += tx; }
+                                    if let Some(rx) = peer.rx_bytes {
+                                        total_rx += rx;
+                                    }
+                                    if let Some(tx) = peer.tx_bytes {
+                                        total_tx += tx;
+                                    }
                                 }
                                 let mut s = stats_arc.lock().unwrap();
                                 s.last_handshake_epoch_secs = last_handshake;
@@ -373,7 +426,9 @@ fn start_tunnel(fd: i32, config: String, protector: Box<dyn SocketProtector>) ->
                     device.stop().await;
                     log::info!("WireGuard tunnel stopped");
                 }
-                Err(e) => { log::error!("Failed to build WireGuard device: {e}"); }
+                Err(e) => {
+                    log::error!("Failed to build WireGuard device: {e}");
+                }
             }
         });
     });
@@ -393,7 +448,9 @@ fn stop_tunnel() -> bool {
     match TUNNEL.lock().unwrap().take() {
         Some(mut handle) => {
             let _ = handle.stop_tx.send(());
-            if let Some(thread) = handle.thread.take() { let _ = thread.join(); }
+            if let Some(thread) = handle.thread.take() {
+                let _ = thread.join();
+            }
             true
         }
         None => false,
@@ -406,7 +463,10 @@ fn stop_tunnel() -> bool {
 fn get_stats() -> Option<String> {
     TUNNEL.lock().unwrap().as_ref().map(|h| {
         let s = h.stats.lock().unwrap();
-        format!("{}|{}|{}", s.last_handshake_epoch_secs, s.rx_bytes, s.tx_bytes)
+        format!(
+            "{}|{}|{}",
+            s.last_handshake_epoch_secs, s.rx_bytes, s.tx_bytes
+        )
     })
 }
 
