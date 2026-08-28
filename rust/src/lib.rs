@@ -2,6 +2,7 @@
 
 use std::io;
 use std::net::SocketAddr;
+use std::os::fd::AsFd;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -106,20 +107,9 @@ impl IpRecv for AndroidTunDevice {
             let n = {
                 let mut guard = self.fd.readable().await?;
                 let buf: &mut [u8] = &mut pkt;
-                let mtu = buf.len().min(self.mtu as usize);
                 match guard.try_io(|inner| {
-                    let n = unsafe {
-                        libc::read(
-                            inner.get_ref().as_raw_fd(),
-                            buf.as_mut_ptr() as *mut libc::c_void,
-                            mtu,
-                        )
-                    };
-                    if n < 0 {
-                        Err(io::Error::last_os_error())
-                    } else {
-                        Ok(n as usize)
-                    }
+                    let n = nix::unistd::read(inner.get_ref().as_fd(), buf)?;
+                    Ok(n)
                 }) {
                     Ok(Ok(n)) => n,
                     Ok(Err(e)) => return Err(e),
