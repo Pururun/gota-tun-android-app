@@ -17,6 +17,7 @@ use gotatun::udp::socket::{UdpSocket, UdpSocketFactory};
 use gotatun::udp::{UdpTransportFactory, UdpTransportFactoryParams};
 use gotatun::x25519::{PublicKey, StaticSecret};
 use ipnetwork::IpNetwork;
+use nix::libc;
 use tokio::io::unix::AsyncFd;
 
 // ======== Logging ========
