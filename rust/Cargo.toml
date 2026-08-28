@@ -8,17 +8,17 @@ name = "gotatun_jni"
 crate-type = ["cdylib"]
 
 [dependencies]
-gotatun = { version = "0.7.2", features = ["device"] }
+gotatun = { version = "0.9.1", features = ["device"] }
 tokio = { version = "1", features = ["full"] }
 base64 = "0.22"
 ipnetwork = "0.21"
 libc = "0.2"
 log = "0.4"
 android_logger = "0.14"
-uniffi = { version = "0.31.2", features = [ "cli" ] }
+uniffi = { version = "0.32.0", features = ["cli"] }
 
 [build-dependencies]
-uniffi = { version = "0.31.2", features = [ "build" ] }
+uniffi = { version = "0.32.0", features = ["build"] }
 
 [features]
 ffi-trace = ["uniffi/ffi-trace"]
@@ -37,7 +37,6 @@ strip = true
 lto = true
 
 [[bin]]
-# This can be whatever name makes sense for your project, but the rest of this tutorial assumes uniffi-bindgen.
 name = "bindgen"
 path = "bindgen.rs"
 

@@ -19,7 +19,6 @@ import dev.zacsweers.metro.ContributesIntoMap
 import dev.zacsweers.metro.Inject
 import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactory
 import dev.zacsweers.metrox.viewmodel.ViewModelAssistedFactoryKey
-import dev.zacsweers.metrox.viewmodel.ViewModelKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,7 +47,6 @@ data class SplitTunnelingUiState(
 )
 
 @AssistedInject
-@ViewModelKey
 class SplitTunnelingViewModel(
     @Assisted private val configId: String,
     private val configRepository: ConfigRepository,

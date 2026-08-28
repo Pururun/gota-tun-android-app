@@ -1,7 +1,8 @@
 #![allow(non_snake_case, clippy::missing_safety_doc)]
 
 use std::io;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::os::fd::AsFd;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
@@ -144,28 +145,24 @@ struct ProtectedUdpFactory {
 }
 
 impl UdpTransportFactory for ProtectedUdpFactory {
-    type SendV4 = UdpSocket;
-    type SendV6 = UdpSocket;
-    type RecvV4 = UdpSocket;
-    type RecvV6 = UdpSocket;
+    type Send = UdpSocket;
+    type Recv = UdpSocket;
 
     async fn bind(
         &mut self,
         params: &UdpTransportFactoryParams,
-    ) -> io::Result<((Self::SendV4, Self::RecvV4), (Self::SendV6, Self::RecvV6))> {
+    ) -> io::Result<(Self::Send, Self::Recv)> {
         let mut std_factory = UdpSocketFactory::default();
         let result = std_factory.bind(params).await?;
         {
-            use std::os::unix::io::AsFd;
-            let ((ref send_v4, _), (ref send_v6, _)) = result;
-            let v4_raw = send_v4.as_fd().as_raw_fd();
-            let v6_raw = send_v6.as_fd().as_raw_fd();
-            if !self.protector.protect(v4_raw) {
+            let (send, _) = result.clone();
+            let send_raw = send.socket().as_raw_fd();
+            if !self.protector.protect(send_raw) {
                 return Err(io::Error::new(io::ErrorKind::Other, "VpnService.protect() failed for v4 socket"));
             }
-            if !self.protector.protect(v6_raw) {
+            /*if !self.protector.protect(v6_raw) {
                 return Err(io::Error::new(io::ErrorKind::Other, "VpnService.protect() failed for v6 socket"));
-            }
+            }*/
         }
         Ok(result)
     }
