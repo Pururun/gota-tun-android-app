@@ -76,18 +76,8 @@ impl IpSend for AndroidTunDevice {
         loop {
             let mut guard = self.fd.writable().await?;
             match guard.try_io(|inner| {
-                let n = unsafe {
-                    libc::write(
-                        inner.get_ref().as_raw_fd(),
-                        bytes.as_ptr() as *const libc::c_void,
-                        bytes.len(),
-                    )
-                };
-                if n < 0 {
-                    Err(io::Error::last_os_error())
-                } else {
-                    Ok(n as usize)
-                }
+                let n = nix::unistd::write(inner.as_fd(), &bytes)?;
+                Ok(n)
             }) {
                 Ok(Ok(_)) => return Ok(()),
                 Ok(Err(e)) => return Err(e),
