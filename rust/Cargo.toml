@@ -14,7 +14,7 @@ path = "bindgen.rs"
 [dependencies]
 android_logger = "0.14"
 base64 = "0.22"
-gotatun = { version = "0.9.1", features = ["device"] }
+gotatun = { version = "0.10.2", features = ["device"] }
 ipnetwork = "0.21"
 log = "0.4"
 nix = "0.31.3"

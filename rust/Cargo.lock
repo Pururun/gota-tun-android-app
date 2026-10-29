@@ -629,9 +629,9 @@ dependencies = [
 
 [[package]]
 name = "gotatun"
-version = "0.9.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9275d1c102aab3fa53182a0a55daff1f19eebf13e7aff336bec0c3c02e56658"
+checksum = "5e37c2134d46523ed5b3c4bbdb578225e2e7379d03aea65baef41584725b1991"
 dependencies = [
  "aead",
  "aws-lc-rs",
@@ -645,7 +645,6 @@ dependencies = [
  "either",
  "eyre",
  "futures",
- "hex",
  "hmac",
  "ip_network",
  "ip_network_table",
@@ -678,12 +677,6 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
-
-[[package]]
-name = "hex"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hmac"
